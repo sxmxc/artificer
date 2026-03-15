@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   AdminApiError,
@@ -12,7 +12,13 @@ import EndpointCatalog from "../components/EndpointCatalog.vue";
 import EndpointSettingsForm from "../components/EndpointSettingsForm.vue";
 import { useAuth } from "../composables/useAuth";
 import type { Endpoint, EndpointDraft } from "../types/endpoints";
-import { buildPayload, createEmptyDraft, describeAdminError, draftFromEndpoint } from "../utils/endpointDrafts";
+import {
+  buildPayload,
+  createDuplicateDraft,
+  createEmptyDraft,
+  describeAdminError,
+  draftFromEndpoint,
+} from "../utils/endpointDrafts";
 
 const props = defineProps<{
   mode: "browse" | "create" | "edit";
@@ -36,14 +42,43 @@ const endpointId = computed(() => {
   return typeof rawId === "string" ? Number(rawId) : null;
 });
 
+const duplicateSourceId = computed(() => {
+  const rawId = Array.isArray(route.query.duplicateFrom) ? route.query.duplicateFrom[0] : route.query.duplicateFrom;
+  if (typeof rawId !== "string") {
+    return null;
+  }
+
+  const parsed = Number(rawId);
+  return Number.isFinite(parsed) ? parsed : null;
+});
+
 const selectedEndpoint = computed(() =>
   endpointId.value ? endpoints.value.find((endpoint) => endpoint.id === endpointId.value) ?? null : null,
 );
+
+const duplicateSource = computed(() =>
+  duplicateSourceId.value ? endpoints.value.find((endpoint) => endpoint.id === duplicateSourceId.value) ?? null : null,
+);
+const duplicateRequestNonce = computed(() => {
+  const rawValue = Array.isArray(route.query.duplicateNonce) ? route.query.duplicateNonce[0] : route.query.duplicateNonce;
+  return typeof rawValue === "string" ? rawValue : "";
+});
+const savedQueryFlag = computed(() => {
+  const rawValue = Array.isArray(route.query.saved) ? route.query.saved[0] : route.query.saved;
+  return rawValue === "1";
+});
 
 const isInitialCatalogLoad = computed(() => isLoading.value && endpoints.value.length === 0);
 const recordTransitionKey = computed(() =>
   props.mode === "create" ? "create" : selectedEndpoint.value ? `endpoint-${selectedEndpoint.value.id}` : "empty",
 );
+const duplicateBanner = computed(() => {
+  if (props.mode !== "create" || !duplicateSource.value) {
+    return null;
+  }
+
+  return `Copied settings from ${duplicateSource.value.name}. Review the new name, slug, and path before saving.`;
+});
 
 async function fetchEndpoints(): Promise<void> {
   if (!auth.credentials.value) {
@@ -79,13 +114,16 @@ watch(
 );
 
 watch(
-  [() => props.mode, selectedEndpoint],
+  [() => props.mode, selectedEndpoint, duplicateSource, duplicateRequestNonce, savedQueryFlag],
   () => {
     fieldErrors.value = {};
     pageError.value = null;
+    pageSuccess.value = savedQueryFlag.value ? "Saved endpoint settings." : null;
 
     if (props.mode === "create") {
-      draft.value = createEmptyDraft();
+      draft.value = duplicateSource.value
+        ? createDuplicateDraft(duplicateSource.value, endpoints.value)
+        : createEmptyDraft();
       return;
     }
 
@@ -96,17 +134,25 @@ watch(
   { immediate: true },
 );
 
-onMounted(() => {
-  if (route.query.saved === "1") {
-    pageSuccess.value = "Saved endpoint settings.";
-  }
-});
-
 function applyDraftPatch(patch: Partial<EndpointDraft>): void {
   draft.value = {
     ...draft.value,
     ...patch,
   };
+}
+
+function openCreateView(): void {
+  void router.push({ name: "endpoints-create" });
+}
+
+function duplicateEndpoint(endpointId: number): void {
+  void router.push({
+    name: "endpoints-create",
+    query: {
+      duplicateFrom: String(endpointId),
+      duplicateNonce: String(Date.now()),
+    },
+  });
 }
 
 async function handleSave(): Promise<void> {
@@ -203,6 +249,14 @@ function openPreview(): void {
   void router.push({ name: "endpoint-preview", params: { endpointId: selectedEndpoint.value.id } });
 }
 
+function duplicateSelectedEndpoint(): void {
+  if (!selectedEndpoint.value) {
+    return;
+  }
+
+  duplicateEndpoint(selectedEndpoint.value.id);
+}
+
 const activeTitle = computed(() => {
   if (props.mode === "create") {
     return "Start a new route";
@@ -242,7 +296,8 @@ const activeTitle = computed(() => {
           :endpoints="endpoints"
           :error="catalogError"
           :loading="isLoading"
-          @create="router.push({ name: 'endpoints-create' })"
+          @create="openCreateView"
+          @duplicate="duplicateEndpoint"
           @refresh="fetchEndpoints"
           @select="(id) => router.push({ name: 'endpoints-edit', params: { endpointId: id } })"
         />
@@ -257,6 +312,10 @@ const activeTitle = computed(() => {
 
         <v-alert v-if="pageError" border="start" color="error" variant="tonal">
           {{ pageError }}
+        </v-alert>
+
+        <v-alert v-if="duplicateBanner" border="start" color="info" variant="tonal">
+          {{ duplicateBanner }}
         </v-alert>
 
         <v-skeleton-loader
@@ -340,6 +399,7 @@ const activeTitle = computed(() => {
                 :updated-at="selectedEndpoint?.updated_at"
                 @change="applyDraftPatch"
                 @delete="handleDelete"
+                @duplicate="duplicateSelectedEndpoint"
                 @open-schema="openSchemaStudio"
                 @preview="openPreview"
                 @submit="handleSave"

@@ -13,6 +13,7 @@ PRODUCT_DESCRIPTION = (
     "A live mock API whose public routes, samples, and OpenAPI reference all stay aligned with the enabled"
     " endpoint catalog in the database."
 )
+BODY_METHODS = {"POST", "PUT", "PATCH"}
 
 
 def _example_path(path: str) -> str:
@@ -34,6 +35,17 @@ def _endpoint_sort_key(endpoint: Any) -> tuple[str, str, str]:
     )
 
 
+def _sample_request(endpoint: Any) -> Any | None:
+    if str(endpoint.method or "").upper() not in BODY_METHODS or not endpoint.request_schema:
+        return None
+
+    return preview_from_schema(
+        endpoint.request_schema,
+        seed_key=endpoint.seed_key,
+        identity=f"reference-request:{endpoint.id}:{endpoint.method}:{endpoint.path}",
+    )
+
+
 def serialize_public_endpoint(endpoint: Any) -> dict[str, Any]:
     return {
         "id": endpoint.id,
@@ -48,6 +60,7 @@ def serialize_public_endpoint(endpoint: Any) -> dict[str, Any]:
         "success_status_code": endpoint.success_status_code,
         "request_schema": sanitize_public_schema(endpoint.request_schema or {}),
         "response_schema": sanitize_public_schema(endpoint.response_schema or {}),
+        "sample_request": _sample_request(endpoint),
         "sample_response": preview_from_schema(
             endpoint.response_schema,
             seed_key=endpoint.seed_key,

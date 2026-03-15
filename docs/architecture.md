@@ -26,6 +26,6 @@ Mockingbird is built as a **monorepo** with a public API surface and a private a
 ## Data flow
 1. Admin user creates/edits endpoint definitions via the UI.
 2. Backend persists definitions in Postgres.
-3. The public landing page and `/api/reference.json` read the active catalog directly from the database for a live quick reference.
+3. The public landing page and `/api/reference.json` read the active catalog directly from the database for a live quick reference, including generated response samples and generated request payload samples for body-based routes.
 4. The mock API router uses those same definitions to route requests and generate responses.
 5. OpenAPI schema is generated from the same definitions and served on `/openapi.json`.

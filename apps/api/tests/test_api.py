@@ -86,6 +86,7 @@ def test_public_landing_reference_and_brand_asset(seeded_db):
     assert "/api/reference.json" in landing.text
     assert "reference-table-body" in landing.text
     assert "payload-popover" in landing.text
+    assert "payload-popover-request-section" in landing.text
     assert "modal-card-head-content" in landing.text
     assert "theme-toggle" in landing.text
     assert "bulma@1.0.4" in landing.text
@@ -100,7 +101,14 @@ def test_public_landing_reference_and_brand_asset(seeded_db):
     payload = reference.json()
     assert payload["product_name"] == "Mockingbird"
     assert payload["endpoint_count"] >= 1
-    assert payload["endpoints"][0]["sample_response"] is not None
+    assert any(endpoint["sample_response"] is not None for endpoint in payload["endpoints"])
+
+    post_endpoint = next(endpoint for endpoint in payload["endpoints"] if endpoint["method"] == "POST")
+    assert post_endpoint["sample_request"] is not None
+    assert post_endpoint["sample_response"] is not None
+
+    get_endpoint = next(endpoint for endpoint in payload["endpoints"] if endpoint["method"] == "GET")
+    assert get_endpoint["sample_request"] is None
 
     asset = client.get("/static/mockingbird-icon.svg")
     assert asset.status_code == 200

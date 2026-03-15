@@ -25,8 +25,8 @@ Published image names:
 
 For this repo, that resolves to:
 
-- `ghcr.io/sxmxc/cuddly-octo-memory-api`
-- `ghcr.io/sxmxc/cuddly-octo-memory-admin-web`
+- `ghcr.io/sxmxc/mockingbird-api`
+- `ghcr.io/sxmxc/mockingbird-admin-web`
 
 ## Tagging and versioning
 

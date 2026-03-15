@@ -4,6 +4,7 @@ import { RouterView, useRoute, useRouter } from "vue-router";
 import { useTheme } from "vuetify";
 import { ensureAuthBooted, useAuth } from "./composables/useAuth";
 import { useStudioTheme } from "./composables/useStudioTheme";
+import { getPageTransitionKey } from "./utils/routeTransitions";
 
 const route = useRoute();
 const router = useRouter();
@@ -25,6 +26,7 @@ watch(
 );
 
 const pageTitle = computed(() => (typeof route.meta.title === "string" ? route.meta.title : "Mockingbird Studio"));
+const pageTransitionKey = computed(() => getPageTransitionKey(route));
 const isPublicRoute = computed(() => route.name === "login");
 
 function toggleTheme(): void {
@@ -100,9 +102,9 @@ function signOut(): void {
 
     <v-main class="studio-main">
       <v-container class="fill-height px-3 px-sm-6 py-6" fluid>
-        <router-view v-slot="{ Component, route: currentRoute }">
+        <router-view v-slot="{ Component }">
           <v-fade-transition mode="out-in">
-            <component :is="Component" :key="currentRoute.fullPath" />
+            <component :is="Component" :key="pageTransitionKey" />
           </v-fade-transition>
         </router-view>
       </v-container>

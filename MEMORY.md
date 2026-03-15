@@ -30,9 +30,13 @@ Provide a Docker-first platform to define and serve configurable mock APIs with 
 - The quick reference under the hero now renders as a Bulma-based paginated table with sticky headers, method/category/search filtering, modal example payloads, and a client-persisted light/dark toggle.
 - The public quick reference now stays closer to stock Bulma styling, with a flatter table shell and simpler modal/filter controls so the branded surface feels less custom-overdesigned.
 - The public quick reference now keeps category/status chips legible in both themes, color-codes status badges by HTTP family, and leaves example modals open until the user explicitly dismisses them.
+- The public quick reference now shows generated request payloads alongside generated responses for POST/PUT/PATCH routes, while read-only routes continue to show response-only examples.
 - The public sample-payload modal now lets long JSON strings wrap inside the modal body instead of creating a second inner scrollbar inside the payload `<pre>`.
 - Seed data loads a 15-endpoint catalog, and `make seed` / `make test` work in Docker.
 - The frontend now runs on Vue + Vuetify, with a dedicated login flow, protected catalog/settings routes, a dedicated schema studio route, light/dark theme toggle, catalog search/filtering, and a Vuetify-first drag-and-drop builder surface.
+- The admin catalog/settings flow now supports endpoint duplication, opening a prefilled disabled copy with adjusted name/slug/path so teams can branch an existing route without immediately shadowing the live one.
+- The admin endpoint workspace now keeps its shared shell mounted across browse/create/edit route changes, so switching records animates the right-hand content panel instead of fading the whole page.
+- The desktop admin catalog rail now uses a bounded scroll region plus client-side pagination, which keeps long endpoint lists from stretching the workspace or pushing the main editor out of position.
 - GitHub Actions now runs backend tests, frontend lint/test/build, and a Docker Compose smoke test on `main` pushes and pull requests, while a separate image workflow validates runtime images on PRs and publishes multi-arch `linux/amd64` + `linux/arm64` images to GHCR on `main` and `v*` tags.
 - The repo now includes a `deploy/docker-compose.ghcr.yml` example plus `deploy/.env.ghcr.example` so teams can run the stack from published GHCR images without cloning the full source tree.
 - The seeded device catalog now defaults `deviceId` to UUID-style IDs and constrains `model` to the curated device-model enum list in both the list/detail device schemas.
@@ -62,7 +66,7 @@ Provide a Docker-first platform to define and serve configurable mock APIs with 
 
 ## Notes for Next Agent
 - Keep tasks updated in `TASKS.md` as progress is made.
-- Focus next on endpoint duplication, richer schema-studio coverage, request parameter modeling, and smarter catalog refresh behavior now that the Vue/Vuetify shell is in place.
+- Focus next on richer schema-studio coverage, request parameter modeling, and smarter catalog refresh behavior now that endpoint duplication is in place.
 - Compose startup now invokes bind-mounted scripts through `sh`, and Postgres health checks probe `POSTGRES_DB` with password auth.
 - Python helper scripts should be executed with `python -m ...` from `/app` so package imports resolve consistently in Docker.
 - The frontend uses a named `/app/node_modules` volume so bind mounts do not hide installed Vite dependencies.
@@ -77,4 +81,4 @@ Provide a Docker-first platform to define and serve configurable mock APIs with 
 - Active admin sessions now live in `sessionStorage`, while the explicit remember-me path additionally copies credentials to `localStorage` so page refreshes stay smooth without always making credentials durable.
 - Vuetify MCP is configured at the repo root via `.mcp.json`, and the frontend package exposes `npm run mcp:vuetify` plus `npm run mcp:vuetify:http` for local MCP usage.
 - Official container images now follow a tag-driven release scheme: `vX.Y.Z` tags publish semver image tags plus `latest`, while default-branch builds publish branch/`edge`/`sha-*` tags alongside uploaded image metadata artifacts and provenance attestations.
-- The standalone deployment example targets `ghcr.io/sxmxc/cuddly-octo-memory-api` and `ghcr.io/sxmxc/cuddly-octo-memory-admin-web`, defaults to `IMAGE_TAG=edge`, and should be pinned to a numbered release tag for production use.
+- The standalone deployment example targets `ghcr.io/sxmxc/mockingbird-api` and `ghcr.io/sxmxc/mockingbird-admin-web`, defaults to `IMAGE_TAG=edge`, and should be pinned to a numbered release tag for production use.

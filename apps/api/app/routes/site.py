@@ -29,6 +29,7 @@ METHOD_ORDER = {
     "OPTIONS": 5,
     "HEAD": 6,
 }
+BODY_METHODS = {"POST", "PUT", "PATCH"}
 ROWS_PER_PAGE = 8
 
 LANDING_TEMPLATE = """
@@ -973,6 +974,37 @@ LANDING_TEMPLATE = """
         line-height: 1.6;
       }
 
+      .sample-sections {
+        display: grid;
+        gap: 18px;
+      }
+
+      .sample-section {
+        display: grid;
+        gap: 10px;
+      }
+
+      .sample-section-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .sample-section-title {
+        font-size: 0.92rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--secondary);
+      }
+
+      .sample-section-meta {
+        color: var(--muted);
+        font-size: 0.94rem;
+      }
+
       [data-theme="dark"] .sample-block {
         background: rgba(255, 255, 255, 0.05);
       }
@@ -1284,7 +1316,7 @@ LANDING_TEMPLATE = """
                     <th scope="col">About</th>
                     <th scope="col">Category</th>
                     <th scope="col">Status</th>
-                    <th scope="col">Example</th>
+                    <th scope="col">Examples</th>
                   </tr>
                 </thead>
                 <tbody id="reference-table-body">__INITIAL_ROWS__</tbody>
@@ -1323,7 +1355,22 @@ LANDING_TEMPLATE = """
           <button class="delete" id="payload-popover-close" type="button" aria-label="Close sample payload"></button>
         </header>
         <section class="modal-card-body">
-          <pre class="sample-block" id="payload-popover-body"></pre>
+          <div class="sample-sections">
+            <section class="sample-section" id="payload-popover-request-section" hidden>
+              <div class="sample-section-header">
+                <div class="sample-section-title">Request payload</div>
+                <div class="sample-section-meta" id="payload-popover-request-meta"></div>
+              </div>
+              <pre class="sample-block" id="payload-popover-request-body"></pre>
+            </section>
+            <section class="sample-section">
+              <div class="sample-section-header">
+                <div class="sample-section-title">Response example</div>
+                <div class="sample-section-meta" id="payload-popover-response-meta"></div>
+              </div>
+              <pre class="sample-block" id="payload-popover-response-body"></pre>
+            </section>
+          </div>
         </section>
       </div>
     </div>
@@ -1349,12 +1396,17 @@ LANDING_TEMPLATE = """
       const payloadPopover = document.getElementById("payload-popover");
       const payloadTitle = document.getElementById("payload-popover-title");
       const payloadMeta = document.getElementById("payload-popover-meta");
-      const payloadBody = document.getElementById("payload-popover-body");
+      const payloadRequestSection = document.getElementById("payload-popover-request-section");
+      const payloadRequestMeta = document.getElementById("payload-popover-request-meta");
+      const payloadRequestBody = document.getElementById("payload-popover-request-body");
+      const payloadResponseMeta = document.getElementById("payload-popover-response-meta");
+      const payloadResponseBody = document.getElementById("payload-popover-response-body");
       const payloadClose = document.getElementById("payload-popover-close");
       const navbarBurger = document.querySelector(".navbar-burger");
       const navbarMenu = document.getElementById("homepage-nav");
       const countTargets = Array.from(document.querySelectorAll("[data-endpoint-count]"));
       const methodPreference = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"];
+      const bodyMethods = new Set(["POST", "PUT", "PATCH"]);
       const filterState = {
         query: "",
         method: "all",
@@ -1546,6 +1598,10 @@ LANDING_TEMPLATE = """
         return true;
       }
 
+      function hasRequestExample(endpoint) {
+        return bodyMethods.has(endpointMethod(endpoint)) && endpoint?.sample_request !== undefined && endpoint?.sample_request !== null;
+      }
+
       function renderEndpointRow(endpoint, index) {
         const tags = Array.isArray(endpoint.tags) ? endpoint.tags : [];
         const method = endpointMethod(endpoint);
@@ -1562,6 +1618,7 @@ LANDING_TEMPLATE = """
               .map((tag) => `<span class="tag is-light is-rounded endpoint-tag">${escapeHtml(tag)}</span>`)
               .join("")}</div>`
           : "";
+        const exampleLabel = hasRequestExample(endpoint) ? "Examples" : "Example";
 
         return `
           <tr>
@@ -1587,7 +1644,7 @@ LANDING_TEMPLATE = """
             </td>
             <td>
               <button type="button" class="button is-small is-info is-light is-rounded sample-trigger" data-sample-index="${index}" aria-haspopup="dialog">
-                Example
+                ${exampleLabel}
               </button>
             </td>
           </tr>
@@ -1606,13 +1663,31 @@ LANDING_TEMPLATE = """
       }
 
       function openSamplePopover(endpoint) {
-        if (!payloadPopover || !payloadTitle || !payloadMeta || !payloadBody) {
+        if (
+          !payloadPopover ||
+          !payloadTitle ||
+          !payloadMeta ||
+          !payloadRequestSection ||
+          !payloadRequestMeta ||
+          !payloadRequestBody ||
+          !payloadResponseMeta ||
+          !payloadResponseBody
+        ) {
           return;
         }
 
+        const method = endpointMethod(endpoint);
+        const examplePath = endpoint?.example_path || endpoint?.path || "/api/example";
+        const statusCode = String(endpoint?.success_status_code || 200);
+        const requestVisible = hasRequestExample(endpoint);
+
         payloadTitle.textContent = endpoint?.name || "Mock payload";
-        payloadMeta.textContent = `${endpointMethod(endpoint)} ${endpoint.example_path || endpoint.path || "/api/example"} • ${endpointCategory(endpoint)} • ${String(endpoint?.success_status_code || 200)}`;
-        payloadBody.textContent = JSON.stringify(endpoint?.sample_response ?? null, null, 2);
+        payloadMeta.textContent = `${method} ${examplePath} • ${endpointCategory(endpoint)}`;
+        payloadRequestSection.hidden = !requestVisible;
+        payloadRequestMeta.textContent = requestVisible ? "Send this JSON body" : "";
+        payloadRequestBody.textContent = requestVisible ? JSON.stringify(endpoint?.sample_request ?? null, null, 2) : "";
+        payloadResponseMeta.textContent = `Returns ${statusCode} application/json`;
+        payloadResponseBody.textContent = JSON.stringify(endpoint?.sample_response ?? null, null, 2);
 
         payloadPopover.classList.add("is-active");
         payloadPopover.setAttribute("aria-hidden", "false");
@@ -1989,6 +2064,7 @@ def _render_reference_rows(reference_payload: dict, page: int = 1) -> str:
         template_path = str(endpoint.get("path") or "")
         status_code = str(endpoint.get("success_status_code", 200))
         status_tone = _status_tone(status_code)
+        example_label = "Examples" if method in BODY_METHODS and endpoint.get("sample_request") is not None else "Example"
         path_note = ""
         if template_path and template_path != example_path:
             path_note = f'<div class="endpoint-path-note">{html.escape(template_path)}</div>'
@@ -2018,7 +2094,7 @@ def _render_reference_rows(reference_payload: dict, page: int = 1) -> str:
               </td>
               <td>
                 <button type="button" class="button is-small is-info is-light is-rounded sample-trigger" data-sample-index="{index}" aria-haspopup="dialog">
-                  Example
+                  {example_label}
                 </button>
               </td>
             </tr>
@@ -2033,6 +2109,7 @@ def _render_reference_rows(reference_payload: dict, page: int = 1) -> str:
                 category=html.escape(str(endpoint.get("category") or "uncategorized")),
                 status_code=html.escape(status_code),
                 status_tone=html.escape(status_tone),
+                example_label=html.escape(example_label),
                 index=index,
             )
         )

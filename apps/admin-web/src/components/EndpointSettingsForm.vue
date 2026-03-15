@@ -16,6 +16,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   change: [patch: Partial<EndpointDraft>];
   delete: [];
+  duplicate: [];
   openSchema: [];
   preview: [];
   submit: [];
@@ -69,6 +70,14 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
               @click="emit('preview')"
             >
               Preview route
+            </v-btn>
+            <v-btn
+              v-if="!isCreating"
+              prepend-icon="mdi-content-copy"
+              variant="text"
+              @click="emit('duplicate')"
+            >
+              Duplicate
             </v-btn>
             <v-btn
               v-if="!isCreating"

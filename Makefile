@@ -1,4 +1,4 @@
-# Makefile for cuddly-octo-memory
+# Makefile for Mockingbird
 
 .DEFAULT_GOAL := help
 

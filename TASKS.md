@@ -3,7 +3,6 @@
 This file tracks the work needed to bootstrap and evolve the project.
 
 ## Now
-- [ ] Add endpoint duplication support in the UI
 - [ ] Add broader frontend coverage for schema drag/drop, preview, and auth journeys
 - [ ] Add background refresh or smarter cache invalidation for the admin catalog
 
@@ -57,6 +56,11 @@ This file tracks the work needed to bootstrap and evolve the project.
 - [x] Fix backend DB session lifecycle so request handling does not exhaust the SQLAlchemy connection pool
 - [x] Rework the public quick reference into a paginated table with filters, modal examples, sticky headers, and dark mode
 - [x] Simplify the public quick reference styling so it stays closer to stock Bulma
+- [x] Add request-and-response examples for public POST-style endpoints in the landing-page quick reference
+- [x] Add endpoint duplication support in the UI
+- [x] Keep the endpoint workspace shell mounted while only the right-hand record pane transitions between records
+- [x] Make the endpoint catalog rail scroll independently with client-side pagination
+- [x] Update repository and deployment references after the GitHub rename to Mockingbird
 - [x] Add a dedicated long-text value type for schema-studio string fields
 - [x] Simplify the admin sign-in page with friendlier copy and a single-column intro/form flow
 - [x] Stabilize GitHub Actions CI and add multi-arch image publishing for CI/CD

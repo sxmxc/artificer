@@ -21,6 +21,9 @@ The frontend communicates with the backend via the admin API under `/api/admin`.
 - Logged-out users should only see the sign-in journey; catalog/editor/preview controls should stay hidden until authentication succeeds.
 - Active sessions live in browser `sessionStorage`; remember-me additionally copies credentials to `localStorage` so reloads and restarts can restore the session.
 - The settings page and schema studio are intentionally separate so endpoint metadata/behavior edits do not crowd the schema authoring flow.
+- The endpoint catalog/settings workspace should keep the left rail and top-level shell mounted while switching between browse/create/edit records, leaving the visible transition scoped to the right-hand record pane.
+- On desktop, the endpoint catalog rail should act like a bounded navigator with its own vertical scroll region and client-side pagination so long catalogs do not push the main editor down the page.
+- Duplicating an endpoint should open the create flow with a prefilled copy, auto-adjust the name/slug/path, and default the duplicate to disabled so the user can review it before publishing.
 - The schema studio is builder-first: users drag Vuetify chip pills into a tree workspace, edit node settings in the left inspector rail, and use import/copy actions only as advanced helpers.
 - Response nodes can be static, true-random, or mocking-random per field; request nodes stay schema-only and intentionally omit mock controls.
 - The response inspector exposes a semantic value-type selector for generated and mocking fields, so IDs, names, first names, emails, prices, and long-text fields can be authored explicitly instead of relying only on field-name guesses.

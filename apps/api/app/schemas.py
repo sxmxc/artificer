@@ -81,6 +81,7 @@ class PublicEndpointReference(BaseModel):
     success_status_code: int
     request_schema: Dict[str, Any] = Field(default_factory=dict)
     response_schema: Dict[str, Any] = Field(default_factory=dict)
+    sample_request: Any = None
     sample_response: Any = None
     updated_at: datetime
 

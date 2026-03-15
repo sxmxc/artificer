@@ -30,6 +30,7 @@ export const router = createRouter({
       meta: {
         requiresAuth: true,
         title: "Endpoint catalog",
+        transitionShell: "endpoint-workspace",
       },
     },
     {
@@ -42,6 +43,7 @@ export const router = createRouter({
       meta: {
         requiresAuth: true,
         title: "Create endpoint",
+        transitionShell: "endpoint-workspace",
       },
     },
     {
@@ -54,6 +56,7 @@ export const router = createRouter({
       meta: {
         requiresAuth: true,
         title: "Endpoint settings",
+        transitionShell: "endpoint-workspace",
       },
     },
     {

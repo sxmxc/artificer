@@ -1,9 +1,13 @@
 import { createRootNode, schemaToTree, treeToSchema, validateTree } from "../schemaBuilder";
 import type { BuilderScope } from "../schemaBuilder";
-import type { Endpoint, EndpointDraft, EndpointPayload, JsonObject } from "../types/endpoints";
+import type { Endpoint, EndpointDraft, EndpointPayload, JsonObject, JsonValue } from "../types/endpoints";
 
 function createDefaultSchema(scope: BuilderScope): JsonObject {
   return treeToSchema(createRootNode(scope), scope);
+}
+
+function cloneJsonValue<T extends JsonValue>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function normalizeOptionalString(value: string): string | null {
@@ -88,6 +92,77 @@ export function draftFromEndpoint(endpoint: Endpoint): EndpointDraft {
     latency_min_ms: endpoint.latency_min_ms,
     latency_max_ms: endpoint.latency_max_ms,
     seed_key: endpoint.seed_key ?? "",
+  };
+}
+
+function buildNameCopyCandidate(name: string, copyNumber: number): string {
+  const baseName = name.trim().replace(/\s+copy(?:\s+\d+)?$/i, "").trim() || "Untitled endpoint";
+  return copyNumber === 1 ? `${baseName} copy` : `${baseName} copy ${copyNumber}`;
+}
+
+function buildSlugCopyCandidate(slug: string, copyNumber: number): string {
+  const baseSlug = slug.trim().replace(/-copy(?:-\d+)?$/i, "").trim() || "endpoint";
+  return copyNumber === 1 ? `${baseSlug}-copy` : `${baseSlug}-copy-${copyNumber}`;
+}
+
+function buildPathCopyCandidate(path: string, copyNumber: number): string {
+  const segments = path
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter(Boolean);
+
+  const suffix = copyNumber === 1 ? "copy" : `copy-${copyNumber}`;
+  if (!segments.length) {
+    return `/${suffix}`;
+  }
+
+  const nextSegments = [...segments];
+  let targetIndex = -1;
+  for (let index = nextSegments.length - 1; index >= 0; index -= 1) {
+    if (!/^\{[^/]+\}$/.test(nextSegments[index])) {
+      targetIndex = index;
+      break;
+    }
+  }
+
+  if (targetIndex === -1) {
+    nextSegments.unshift(suffix);
+    return `/${nextSegments.join("/")}`;
+  }
+
+  const baseSegment = nextSegments[targetIndex].replace(/-copy(?:-\d+)?$/i, "").trim() || "route";
+  nextSegments[targetIndex] = `${baseSegment}-copy${copyNumber === 1 ? "" : `-${copyNumber}`}`;
+  return `/${nextSegments.join("/")}`;
+}
+
+export function createDuplicateDraft(endpoint: Endpoint, existingEndpoints: Endpoint[]): EndpointDraft {
+  const usedNames = new Set(existingEndpoints.map((item) => item.name.trim().toLowerCase()));
+  const usedSlugs = new Set(existingEndpoints.map((item) => item.slug.trim().toLowerCase()));
+  const usedPaths = new Set(existingEndpoints.map((item) => item.path.trim()));
+
+  let copyNumber = 1;
+  let name = buildNameCopyCandidate(endpoint.name, copyNumber);
+  let slug = buildSlugCopyCandidate(endpoint.slug, copyNumber);
+  let path = buildPathCopyCandidate(endpoint.path, copyNumber);
+
+  while (usedNames.has(name.toLowerCase()) || usedSlugs.has(slug.toLowerCase()) || usedPaths.has(path)) {
+    copyNumber += 1;
+    name = buildNameCopyCandidate(endpoint.name, copyNumber);
+    slug = buildSlugCopyCandidate(endpoint.slug, copyNumber);
+    path = buildPathCopyCandidate(endpoint.path, copyNumber);
+  }
+
+  const draft = draftFromEndpoint(endpoint);
+  return {
+    ...draft,
+    name,
+    slug,
+    path,
+    enabled: false,
+    request_schema: cloneJsonValue(draft.request_schema),
+    response_schema: cloneJsonValue(draft.response_schema),
   };
 }
 

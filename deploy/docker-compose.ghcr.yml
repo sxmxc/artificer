@@ -20,7 +20,7 @@ services:
       retries: 10
 
   api:
-    image: ghcr.io/sxmxc/cuddly-octo-memory-api:${IMAGE_TAG:-edge}
+    image: ghcr.io/sxmxc/mockingbird-api:${IMAGE_TAG:-edge}
     restart: unless-stopped
     pull_policy: always
     environment:
@@ -42,7 +42,7 @@ services:
       - "${API_PUBLISHED_PORT:-8000}:8000"
 
   admin-web:
-    image: ghcr.io/sxmxc/cuddly-octo-memory-admin-web:${IMAGE_TAG:-edge}
+    image: ghcr.io/sxmxc/mockingbird-admin-web:${IMAGE_TAG:-edge}
     restart: unless-stopped
     pull_policy: always
     environment:

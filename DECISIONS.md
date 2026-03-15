@@ -41,6 +41,18 @@
 - **`@vuetify/v0` usage**: Use `createStorage` and `createTheme` from `@vuetify/v0` to manage the persisted light/dark theme toggle alongside Vuetify's runtime theme.
 - **MCP setup**: Commit a repo-level Vuetify MCP config and frontend package scripts so AI-assisted contributors can connect to the official Vuetify MCP server without re-discovering the setup.
 
+## 2026-03-15: Admin endpoint duplication workflow
+- **Duplicate UX**: Launch duplication into the existing create-route form rather than immediately persisting a second record, so operators can review and tweak the copy before it exists in the catalog.
+- **Safety defaults**: Auto-adjust the duplicated endpoint's name, slug, and path, and default the copy to disabled so a quick duplicate cannot accidentally shadow an existing public route.
+
+## 2026-03-15: Admin catalog rail behavior
+- **Rail ergonomics**: Treat the endpoint catalog as a bounded navigation rail on desktop, with its own vertical scroll area, rather than letting long lists extend the whole page.
+- **Pagination scope**: Keep catalog pagination client-side after filtering so the rail stays lightweight while the backend remains focused on endpoint CRUD and runtime concerns.
+
+## 2026-03-15: GitHub repository rename to Mockingbird
+- **Canonical repo slug**: Treat `sxmxc/mockingbird` as the source-of-truth GitHub repository and update local git remotes plus deploy/docs references accordingly.
+- **Published image names**: Because runtime image names follow `ghcr.io/<owner>/<repo>-<image>`, the documented GHCR targets now resolve to `ghcr.io/sxmxc/mockingbird-api` and `ghcr.io/sxmxc/mockingbird-admin-web`.
+
 ## 2026-03-15: Mockingbird public surface and brand
 - **Product name**: Present the system publicly as Mockingbird, including a shared mascot SVG used as the primary logo/favicon in the admin shell and public API landing page.
 - **Public homepage**: Add a branded landing page at `/` and `/api` plus a live `/api/reference.json` feed so the public API has a human-friendly homepage that stays aligned with the DB-backed catalog.
@@ -63,6 +75,10 @@
 - **Examples and theming**: Keep example payloads behind an explicit modal action and persist a lightweight client-side light/dark mode toggle for the public surface.
 - **Styling framework**: Use Bulma for the public homepage controls and table/modal primitives, while keeping custom CSS only for the branded hero artwork, theming, and sticky-table behavior.
 - **Bulma discipline**: Favor near-stock Bulma table, modal, tag, button, and form treatments instead of layering bespoke chrome over those components.
+
+## 2026-03-15: Public request/response examples for body routes
+- **Reference payload contract**: Extend `/api/reference.json` with generated `sample_request` values for `POST` / `PUT` / `PATCH` endpoints, while keeping read-only routes response-only.
+- **Landing-page modal**: Reuse the existing example modal and render request and response sections together for body-based routes so public users can see both the JSON to send and the mock payload they should expect back.
 
 ## 2026-03-15: CI/CD image and workflow strategy
 - **Workflow split**: Keep a fast CI workflow for backend tests, frontend lint/test/build, and Docker Compose smoke coverage, and a separate image workflow for runtime-image validation and registry publishing.

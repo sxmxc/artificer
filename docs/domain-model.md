@@ -52,3 +52,9 @@ The OpenAPI schema is generated dynamically by mapping `EndpointDefinition` fiel
 - `request_schema` becomes `requestBody` for `POST` / `PUT` / `PATCH`.
 - `response_schema` becomes response schema after stripping `x-mock` and `x-builder`.
 - `summary` and `description` are used in the OpenAPI operation.
+
+## Public reference feed
+The public `/api/reference.json` feed exposes sanitized endpoint metadata for the landing page quick reference.
+- `request_schema` and `response_schema` are stripped of internal `x-mock` and `x-builder` keys before publishing.
+- `sample_response` is generated from `response_schema`.
+- `sample_request` is generated for `POST` / `PUT` / `PATCH` routes so the public examples modal can show both the JSON body to send and the mock response that comes back.

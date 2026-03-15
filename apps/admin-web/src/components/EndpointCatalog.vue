@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { Endpoint } from "../types/endpoints";
+
+const ITEMS_PER_PAGE = 8;
 
 const props = defineProps<{
   activeEndpointId?: number | null;
@@ -11,6 +13,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   create: [];
+  duplicate: [endpointId: number];
   refresh: [];
   select: [endpointId: number];
 }>();
@@ -18,6 +21,7 @@ const emit = defineEmits<{
 const search = ref("");
 const statusFilter = ref<"all" | "live" | "disabled">("all");
 const methodFilter = ref("all");
+const currentPage = ref(1);
 
 const methodOptions = computed(() => {
   const methods = new Set(props.endpoints.map((endpoint) => endpoint.method));
@@ -42,10 +46,55 @@ const filteredEndpoints = computed(() =>
     return matchesSearch && matchesStatus && matchesMethod;
   }),
 );
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredEndpoints.value.length / ITEMS_PER_PAGE)));
+const paginatedEndpoints = computed(() => {
+  const start = (currentPage.value - 1) * ITEMS_PER_PAGE;
+  return filteredEndpoints.value.slice(start, start + ITEMS_PER_PAGE);
+});
+const pageSummary = computed(() => {
+  if (!filteredEndpoints.value.length) {
+    return "No endpoints in the current result set";
+  }
+
+  const start = (currentPage.value - 1) * ITEMS_PER_PAGE + 1;
+  const end = Math.min(start + ITEMS_PER_PAGE - 1, filteredEndpoints.value.length);
+  return `Showing ${start}-${end} of ${filteredEndpoints.value.length} endpoints`;
+});
+
+watch([search, statusFilter, methodFilter], () => {
+  currentPage.value = 1;
+});
+
+watch(totalPages, (value) => {
+  if (currentPage.value > value) {
+    currentPage.value = value;
+  }
+});
+
+watch(
+  [() => props.activeEndpointId, filteredEndpoints],
+  ([activeEndpointId, endpoints]) => {
+    if (!activeEndpointId) {
+      return;
+    }
+
+    const activeIndex = endpoints.findIndex((endpoint) => endpoint.id === activeEndpointId);
+    if (activeIndex === -1) {
+      return;
+    }
+
+    const pageForActiveEndpoint = Math.floor(activeIndex / ITEMS_PER_PAGE) + 1;
+    if (pageForActiveEndpoint !== currentPage.value) {
+      currentPage.value = pageForActiveEndpoint;
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
-  <v-card class="workspace-card">
+  <v-card class="workspace-card catalog-card">
     <v-card-item>
       <template #prepend>
         <v-avatar color="primary" variant="tonal">
@@ -71,7 +120,7 @@ const filteredEndpoints = computed(() =>
       </template>
     </v-card-item>
 
-    <v-card-text class="d-flex flex-column ga-4">
+    <v-card-text class="catalog-card-body d-flex flex-column ga-4">
       <v-text-field
         v-model="search"
         hide-details
@@ -99,47 +148,102 @@ const filteredEndpoints = computed(() =>
         </v-chip-group>
       </div>
 
-      <v-alert v-if="error" border="start" color="error" variant="tonal">
-        {{ error }}
-      </v-alert>
+      <div class="d-flex align-center justify-space-between flex-wrap ga-3">
+        <div class="text-caption text-medium-emphasis">{{ pageSummary }}</div>
+        <v-chip label size="small" variant="outlined">
+          Page {{ currentPage }} / {{ totalPages }}
+        </v-chip>
+      </div>
 
-      <v-skeleton-loader
-        v-if="loading && endpoints.length === 0 && !error"
-        type="list-item-two-line, list-item-two-line, list-item-two-line, list-item-two-line"
+      <div class="catalog-scroll-region">
+        <v-alert v-if="error" border="start" color="error" variant="tonal">
+          {{ error }}
+        </v-alert>
+
+        <v-skeleton-loader
+          v-else-if="loading && endpoints.length === 0"
+          type="list-item-two-line, list-item-two-line, list-item-two-line, list-item-two-line"
+        />
+
+        <v-alert v-else-if="!filteredEndpoints.length" border="start" color="info" variant="tonal">
+          No endpoints match the current filters.
+        </v-alert>
+
+        <v-list v-else class="catalog-list" lines="three" rounded="xl">
+          <v-list-item
+            v-for="endpoint in paginatedEndpoints"
+            :key="endpoint.id"
+            :active="endpoint.id === activeEndpointId"
+            class="catalog-item"
+            rounded="xl"
+            @click="emit('select', endpoint.id)"
+          >
+            <template #prepend>
+              <v-avatar :color="endpoint.enabled ? 'accent' : 'surface-variant'" size="44" variant="tonal">
+                <span class="text-caption font-weight-bold">{{ endpoint.method }}</span>
+              </v-avatar>
+            </template>
+
+            <v-list-item-title class="font-weight-bold">{{ endpoint.name }}</v-list-item-title>
+            <v-list-item-subtitle>{{ endpoint.path }}</v-list-item-subtitle>
+
+            <template #append>
+              <div class="d-flex flex-column align-end ga-2">
+                <v-chip :color="endpoint.enabled ? 'accent' : 'surface-variant'" label size="small" variant="tonal">
+                  {{ endpoint.enabled ? "Live" : "Disabled" }}
+                </v-chip>
+                <v-btn
+                  aria-label="Duplicate endpoint"
+                  density="comfortable"
+                  icon="mdi-content-copy"
+                  size="small"
+                  variant="text"
+                  @click.stop="emit('duplicate', endpoint.id)"
+                />
+                <span class="text-caption text-medium-emphasis">{{ endpoint.category || "uncategorized" }}</span>
+              </div>
+            </template>
+          </v-list-item>
+        </v-list>
+      </div>
+
+      <v-pagination
+        v-if="filteredEndpoints.length > ITEMS_PER_PAGE"
+        v-model="currentPage"
+        aria-label="Catalog pagination"
+        class="align-self-center"
+        :length="totalPages"
+        rounded="circle"
+        :total-visible="5"
       />
-
-      <v-alert v-else-if="!filteredEndpoints.length" border="start" color="info" variant="tonal">
-        No endpoints match the current filters.
-      </v-alert>
-
-      <v-list v-else class="catalog-list" lines="three" rounded="xl">
-        <v-list-item
-          v-for="endpoint in filteredEndpoints"
-          :key="endpoint.id"
-          :active="endpoint.id === activeEndpointId"
-          class="catalog-item"
-          rounded="xl"
-          @click="emit('select', endpoint.id)"
-        >
-          <template #prepend>
-            <v-avatar :color="endpoint.enabled ? 'accent' : 'surface-variant'" size="44" variant="tonal">
-              <span class="text-caption font-weight-bold">{{ endpoint.method }}</span>
-            </v-avatar>
-          </template>
-
-          <v-list-item-title class="font-weight-bold">{{ endpoint.name }}</v-list-item-title>
-          <v-list-item-subtitle>{{ endpoint.path }}</v-list-item-subtitle>
-
-          <template #append>
-            <div class="d-flex flex-column align-end ga-2">
-              <v-chip :color="endpoint.enabled ? 'accent' : 'surface-variant'" label size="small" variant="tonal">
-                {{ endpoint.enabled ? "Live" : "Disabled" }}
-              </v-chip>
-              <span class="text-caption text-medium-emphasis">{{ endpoint.category || "uncategorized" }}</span>
-            </div>
-          </template>
-        </v-list-item>
-      </v-list>
     </v-card-text>
   </v-card>
 </template>
+
+<style scoped>
+.catalog-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.catalog-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.catalog-scroll-region {
+  min-height: 0;
+}
+
+@media (min-width: 1280px) {
+  .catalog-card {
+    height: clamp(32rem, 68vh, 46rem);
+  }
+
+  .catalog-scroll-region {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding-right: 0.35rem;
+  }
+}
+</style>

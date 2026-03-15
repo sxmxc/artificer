@@ -23,7 +23,7 @@ If you access the frontend through a remote host or internal DNS name, add it to
 ## 🧠 What You Get
 
 - **Dynamic mock API**: endpoints defined in Postgres are served dynamically.
-- **Public landing page**: `/` and `/api` now render a full-height Mockingbird hero sourced from split top/bottom artwork frames, with a Bulma-based quick-reference table, filtering, pagination, modal example payloads, and a light/dark theme toggle.
+- **Public landing page**: `/` and `/api` now render a full-height Mockingbird hero sourced from split top/bottom artwork frames, with a Bulma-based quick-reference table, filtering, pagination, request/response example modals for body-based routes, and a light/dark theme toggle.
 - **Live OpenAPI**: `/openapi.json` reflects the active endpoint catalog.
 - **Admin API**: basic-auth CRUD routes manage endpoint definitions in Postgres.
 - **Seed catalog**: `make seed` loads 15 sample endpoints for local exploration, including device examples that now use UUID-style `deviceId` values and a curated default model enum.
@@ -70,8 +70,8 @@ If you want to run Mockingbird without cloning the full repo, start from:
 
 Those files point at:
 
-- `ghcr.io/sxmxc/cuddly-octo-memory-api`
-- `ghcr.io/sxmxc/cuddly-octo-memory-admin-web`
+- `ghcr.io/sxmxc/mockingbird-api`
+- `ghcr.io/sxmxc/mockingbird-admin-web`
 
 The default `IMAGE_TAG=edge` tracks the latest default-branch publish. For release deployments, prefer an explicit tag such as `IMAGE_TAG=1.2.3`.
 

@@ -6,16 +6,19 @@ from fastapi import FastAPI
 
 from app.config import Settings
 from app.crud import list_endpoints
-from app.db import get_session
+from app.db import session_scope
+from app.services.schema_contract import sanitize_public_schema
+
+
+BODY_METHODS = {"post", "put", "patch"}
 
 
 def _schema_or_empty(schema: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    return schema or {"type": "object", "properties": {}}
+    return sanitize_public_schema(schema or {"type": "object", "properties": {}})
 
 
 def _build_operation(endpoint: Any) -> Dict[str, Any]:
-    schema = _schema_or_empty(endpoint.response_schema)
-    return {
+    operation = {
         "summary": endpoint.summary or endpoint.name,
         "description": endpoint.description or "",
         "tags": endpoint.tags or [],
@@ -23,11 +26,23 @@ def _build_operation(endpoint: Any) -> Dict[str, Any]:
             str(endpoint.success_status_code): {
                 "description": "Successful response",
                 "content": {
-                    "application/json": {"schema": schema}
+                    "application/json": {"schema": _schema_or_empty(endpoint.response_schema)}
                 },
             }
         },
     }
+
+    if endpoint.method.lower() in BODY_METHODS and endpoint.request_schema:
+        operation["requestBody"] = {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _schema_or_empty(endpoint.request_schema),
+                }
+            },
+        }
+
+    return operation
 
 
 def get_openapi(
@@ -43,12 +58,12 @@ def get_openapi(
         "info": {
             "title": app.title or "Mock API",
             "version": app.version or "0.0.0",
-            "description": "Dynamic OpenAPI generated from stored mock endpoint definitions.",
+            "description": "Mockingbird publishes a live OpenAPI document generated from the active public endpoint catalog.",
         },
         "paths": {},
     }
 
-    with get_session() as session:
+    with session_scope() as session:
         endpoints = list_endpoints(session, limit=1000)
 
     for endpoint in endpoints:

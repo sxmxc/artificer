@@ -3,23 +3,34 @@ module.exports = {
   env: {
     browser: true,
     es2021: true,
+    node: true,
   },
-  extends: ["eslint:recommended", "plugin:react/recommended"],
-  parser: "@typescript-eslint/parser",
+  extends: ["eslint:recommended", "plugin:vue/vue3-recommended", "plugin:@typescript-eslint/recommended"],
+  parser: "vue-eslint-parser",
   parserOptions: {
-    ecmaFeatures: {
-      jsx: true,
-    },
+    parser: "@typescript-eslint/parser",
     ecmaVersion: "latest",
+    extraFileExtensions: [".vue"],
     sourceType: "module",
   },
-  plugins: ["react", "@typescript-eslint"],
-  settings: {
-    react: {
-      version: "detect",
-    },
+  plugins: ["vue", "@typescript-eslint"],
+  globals: {
+    beforeEach: "readonly",
+    describe: "readonly",
+    expect: "readonly",
+    it: "readonly",
+    vi: "readonly",
   },
   rules: {
-    "react/react-in-jsx-scope": "off",
+    "no-unused-vars": "off",
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      {
+        argsIgnorePattern: "^_",
+      },
+    ],
+    "vue/max-attributes-per-line": "off",
+    "vue/multi-word-component-names": "off",
+    "vue/singleline-html-element-content-newline": "off",
   },
 };

@@ -15,9 +15,7 @@ Fields:
 - `enabled`: boolean
 - `auth_mode`: none/basic/api_key/bearer
 - `request_schema`: JSON Schema for request body / parameters
-- `response_schema`: JSON Schema for response body
-- `example_template`: JSON template used to generate mock responses
-- `response_mode`: `random` / `template` / `fixed`
+- `response_schema`: JSON Schema for response body plus internal builder/generator extensions
 - `success_status_code`: HTTP status for successful responses
 - `error_rate`: ratio of requests that return an error
 - `latency_min_ms`, `latency_max_ms`: for simulated delay
@@ -25,11 +23,30 @@ Fields:
 - `created_at`, `updated_at`: audit timestamps
 
 ## Response generation
-The system generates mock responses by combining the `response_schema` with the `example_template`.
-Random values are inserted in a way that keeps the shape consistent and provides humorous output.
+The system now generates mock responses directly from `response_schema`.
+
+Supported internal schema extensions:
+- `x-mock.mode`: `generate`, `mocking`, or `fixed`
+- `x-mock.type`: optional semantic value type such as `id`, `email`, `name`, `first_name`, `price`, or `long_text`
+- `x-mock.generator`: legacy alias for `x-mock.type`, still accepted for compatibility
+- `x-mock.options`: generator-specific settings
+- `x-mock.value`: literal JSON subtree returned when the node is fixed
+- `x-builder.order`: object property order used by the drag-and-drop builder
+
+Random generation respects standard JSON Schema keywords where useful:
+- `enum`
+- `format`
+- `minimum` / `maximum`
+- `minLength` / `maxLength`
+- `minItems` / `maxItems`
+
+Mode behavior:
+- `generate`: type-correct true random values.
+- `mocking`: type-correct values with a more playful Mockingbird tone, such as snarkier text, themed emails, cheekier names, or longer quote/message copy.
+- `fixed`: static literal JSON returned exactly as configured.
 
 ## OpenAPI model
 The OpenAPI schema is generated dynamically by mapping `EndpointDefinition` fields to OpenAPI path entries.
-- `request_schema` becomes requestBody / parameters.
-- `response_schema` becomes response schema.
+- `request_schema` becomes `requestBody` for `POST` / `PUT` / `PATCH`.
+- `response_schema` becomes response schema after stripping `x-mock` and `x-builder`.
 - `summary` and `description` are used in the OpenAPI operation.

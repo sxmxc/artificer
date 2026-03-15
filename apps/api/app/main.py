@@ -1,13 +1,21 @@
-from fastapi import FastAPI
+from pathlib import Path
 
-from app.api import admin_router, public_router
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+from app.api import admin_router, public_router, site_router
 from app.config import Settings
 from app.openapi import get_openapi
 
 settings = Settings()
 
-app = FastAPI(title="Cuddly Octo Memory", version="0.1.0")
+app = FastAPI(title="Mockingbird", version="0.1.0")
 
+static_dir = Path(__file__).resolve().parents[1] / "static"
+static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+app.include_router(site_router, tags=["public"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 app.include_router(public_router, prefix="/api", tags=["mock"])
 

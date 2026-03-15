@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-python scripts/seed.py
+python -m scripts.init_db
+python -m scripts.seed

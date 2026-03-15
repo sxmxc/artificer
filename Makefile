@@ -26,14 +26,14 @@ logs:
 	docker compose logs -f
 
 seed:
-	docker compose run --rm api ./scripts/seed.sh
+	docker compose run --rm api sh ./scripts/seed.sh
 
 test:
 	docker compose run --rm api pytest
 
 lint:
 	docker compose run --rm api black --check . && \
-	cd apps/admin-web && npm run lint
+	docker compose run --rm admin-web npm run lint
 
 clean:
 	rm -rf .pytest_cache __pycache__ build dist

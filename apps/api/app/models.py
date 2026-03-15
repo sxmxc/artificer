@@ -15,12 +15,6 @@ class AuthMode(str, Enum):
     bearer = "bearer"
 
 
-class ResponseMode(str, Enum):
-    fixed = "fixed"
-    random = "random"
-    template = "template"
-
-
 class EndpointDefinition(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
@@ -35,8 +29,6 @@ class EndpointDefinition(SQLModel, table=True):
     auth_mode: AuthMode = AuthMode.none
     request_schema: Optional[Dict] = Field(default_factory=dict, sa_column=Column(SAJSON))
     response_schema: Optional[Dict] = Field(default_factory=dict, sa_column=Column(SAJSON))
-    example_template: Optional[Dict] = Field(default_factory=dict, sa_column=Column(SAJSON))
-    response_mode: ResponseMode = ResponseMode.random
     success_status_code: int = 200
     error_rate: float = 0.0
     latency_min_ms: int = 0

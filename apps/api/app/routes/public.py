@@ -4,13 +4,14 @@ import json
 import random
 import re
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
 from sqlmodel import Session
 
 from app.crud import list_endpoints
 from app.db import get_session
+from app.services.mock_generation import preview_from_schema
 
 router = APIRouter()
 
@@ -26,18 +27,12 @@ def _path_matches(request_path: str, pattern: str) -> bool:
     return bool(re.match(regex, request_path))
 
 
-def _pick_response(endpoint: Any) -> Dict[str, Any]:
-    # If an example template exists, use it as the base.
-    if endpoint.example_template:
-        return endpoint.example_template
-
-    # Fallback to response schema if present.
-    if endpoint.response_schema:
-        if isinstance(endpoint.response_schema, dict):
-            return endpoint.response_schema
-
-    # Default placeholder
-    return {"message": "This is a mock response."}
+def _pick_response(endpoint: Any) -> Any:
+    return preview_from_schema(
+        endpoint.response_schema,
+        seed_key=endpoint.seed_key,
+        identity=f"endpoint:{endpoint.id}:{endpoint.method}:{endpoint.path}",
+    )
 
 
 @router.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

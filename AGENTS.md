@@ -27,14 +27,15 @@ This repository is designed for **AI-native collaboration**. AI agents (and huma
 ## 🧭 Backend Conventions
 - Use FastAPI with SQLModel for schema + DB models.
 - Put most logic under `apps/api/app/` (e.g., `models/`, `services/`, `routes/`).
-- Use Alembic for migrations; keep migrations in `migrations/`.
+- Use Alembic for migrations; keep migration config and revisions under `apps/api/migrations/`.
 - Any change that affects the runtime contract (endpoints, schemas, auth) must update docs.
 
 ## 🧭 Frontend Conventions
-- Use Vite + React + TypeScript.
-- Keep components in `apps/admin-web/src/components` and views in `apps/admin-web/src/pages`.
+- Use Vite + Vue + TypeScript + Vuetify.
+- Keep reusable UI in `apps/admin-web/src/components` and route views in `apps/admin-web/src/views`.
 - Use `src/api/` for API client code.
-- Prefer simple forms and JSON editors for schema editing.
+- Prefer Vuetify components wherever possible before reaching for custom primitives.
+- Use `@vuetify/v0` for shared theme/storage helpers and keep the Vuetify MCP setup in sync with project docs.
 
 ## 🧠 Documentation Rules
 - When code changes behavior, update `docs/` to reflect it.

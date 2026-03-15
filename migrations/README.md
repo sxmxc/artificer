@@ -1,10 +1,5 @@
 # Migrations
 
-This directory is reserved for Alembic migrations.
+Runtime Alembic config and revision files now live under `apps/api/migrations/` so they are available inside the API Docker build context.
 
-Currently the project uses SQLModel's `create_all()` for schema bootstrap. When the schema stabilizes, generate proper migrations:
-
-```sh
-cd apps/api
-alembic init migrations
-```
+This top-level placeholder remains only for historical continuity.

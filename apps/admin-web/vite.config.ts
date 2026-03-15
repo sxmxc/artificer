@@ -1,16 +1,63 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import vue from "@vitejs/plugin-vue";
+import vuetify, { transformAssetUrls } from "vite-plugin-vuetify";
+
+function parseAllowedHosts(value?: string): string[] | true | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized === "*" || normalized.toLowerCase() === "true") {
+    return true;
+  }
+
+  return normalized
+    .split(",")
+    .map((host) => host.trim())
+    .filter(Boolean);
+}
+
+const frontendHost = process.env.FRONTEND_HOST || "0.0.0.0";
+const frontendPort = Number(process.env.FRONTEND_PORT) || 3000;
+const frontendAllowedHosts = parseAllowedHosts(process.env.FRONTEND_ALLOWED_HOSTS);
+const frontendProxyTarget = process.env.FRONTEND_DEV_PROXY_TARGET || "http://localhost:8000";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    vue({
+      template: {
+        transformAssetUrls,
+      },
+    }),
+    vuetify({
+      autoImport: true,
+    }),
+  ],
   server: {
-    port: Number(process.env.FRONTEND_PORT) || 3000,
-    host: process.env.FRONTEND_HOST || "0.0.0.0",
+    port: frontendPort,
+    host: frontendHost,
+    allowedHosts: frontendAllowedHosts,
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: frontendProxyTarget,
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    css: true,
+    environment: "jsdom",
+    globals: true,
+    server: {
+      deps: {
+        inline: ["vuetify"],
+      },
+    },
+    setupFiles: "./src/test/setup.ts",
   },
 });

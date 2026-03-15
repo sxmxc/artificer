@@ -1,16 +1,30 @@
 from __future__ import annotations
 
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlmodel import Session
 
 from app.crud import create_endpoint
-from app.db import get_session
+from app.db import session_scope
 from app.models import EndpointDefinition
 from app.schemas import EndpointCreate
+from app.services.schema_contract import build_fixed_schema_from_example, normalize_schema_for_builder
+
+
+def request_schema(schema: dict) -> dict:
+    return normalize_schema_for_builder(schema, property_name="root", include_mock=False)
+
+
+def response_schema(schema: dict) -> dict:
+    return normalize_schema_for_builder(schema, property_name="root", include_mock=True)
+
+
+def fixed_response(value: object) -> dict:
+    return build_fixed_schema_from_example(value)
 
 
 def _upsert_endpoint(session: Session, payload: EndpointCreate) -> EndpointDefinition:
     statement = select(EndpointDefinition).where(EndpointDefinition.slug == payload.slug)
-    existing = session.exec(statement).first()
+    existing = session.execute(statement).scalars().first()
     if existing:
         for key, value in payload.dict().items():
             setattr(existing, key, value)
@@ -21,6 +35,10 @@ def _upsert_endpoint(session: Session, payload: EndpointCreate) -> EndpointDefin
     return create_endpoint(session, payload)
 
 
+def _catalog_seed_key(slug: str) -> str:
+    return f"catalog::{slug}"
+
+
 def seed():
     seeds = [
         EndpointCreate(
@@ -29,22 +47,26 @@ def seed():
             method="GET",
             path="/api/quotes",
             category="quotes",
+            tags=["quotes", "catalog"],
             summary="List funny quotes",
-            description="Returns a list of randomly generated joke-style quotes.",
-            response_schema={
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string"},
-                        "quote": {"type": "string"},
-                        "author": {"type": "string"},
+            description="Returns a list of generated joke-style quotes.",
+            response_schema=response_schema(
+                {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 4,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "format": "uuid"},
+                            "quote": {"type": "string", "x-mock": {"mode": "mocking", "generator": "long_text", "options": {"sentences": 2}}},
+                            "author": {"type": "string", "x-mock": {"mode": "mocking", "generator": "full_name"}},
+                        },
+                        "required": ["id", "quote", "author"],
                     },
-                },
-            },
-            example_template=[
-                {"id": "q1", "quote": "We do not fear technical debt. We refinance it emotionally.", "author": "Captain Spreadsheet"}
-            ],
+                }
+            ),
+            seed_key=_catalog_seed_key("list-quotes"),
         ),
         EndpointCreate(
             name="Random Quote",
@@ -52,20 +74,20 @@ def seed():
             method="GET",
             path="/api/quotes/random",
             category="quotes",
+            tags=["quotes"],
             summary="Get a random quote",
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "quote": {"type": "string"},
-                    "author": {"type": "string"},
-                },
-            },
-            example_template={
-                "id": "q-random",
-                "quote": "Don't worry, our mocks never lie (unless we want them to).",
-                "author": "Senior Button Optimizer",
-            },
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "quote": {"type": "string", "x-mock": {"mode": "mocking", "generator": "long_text", "options": {"sentences": 1}}},
+                        "author": {"type": "string", "x-mock": {"mode": "mocking", "generator": "full_name"}},
+                    },
+                    "required": ["id", "quote", "author"],
+                }
+            ),
+            seed_key=_catalog_seed_key("random-quote"),
         ),
         EndpointCreate(
             name="List Users",
@@ -73,25 +95,25 @@ def seed():
             method="GET",
             path="/api/users",
             category="users",
+            tags=["users", "catalog"],
             summary="List users",
-            response_schema={
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string"},
-                        "displayName": {"type": "string"},
-                        "email": {"type": "string"},
-                    },
-                },
-            },
-            example_template=[
+            response_schema=response_schema(
                 {
-                    "id": "user-1",
-                    "displayName": "Captain Spreadsheet",
-                    "email": "captain.spreadsheet@example.mock",
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 5,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "format": "uuid"},
+                            "displayName": {"type": "string", "x-mock": {"generator": "full_name"}},
+                            "email": {"type": "string", "format": "email"},
+                        },
+                        "required": ["id", "displayName", "email"],
+                    },
                 }
-            ],
+            ),
+            seed_key=_catalog_seed_key("list-users"),
         ),
         EndpointCreate(
             name="Get User",
@@ -99,22 +121,24 @@ def seed():
             method="GET",
             path="/api/users/{id}",
             category="users",
+            tags=["users"],
             summary="Get a user by ID",
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "displayName": {"type": "string"},
-                    "email": {"type": "string"},
-                    "role": {"type": "string"},
-                },
-            },
-            example_template={
-                "id": "user-42",
-                "displayName": "Vice President of Napping",
-                "email": "vp.naps@mockservice.io",
-                "role": "Senior Button Optimizer",
-            },
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "displayName": {"type": "string", "x-mock": {"generator": "full_name"}},
+                        "email": {"type": "string", "format": "email"},
+                        "role": {
+                            "type": "string",
+                            "enum": ["Designer of Chaos", "Staff Octopus Liaison", "Senior Button Optimizer"],
+                        },
+                    },
+                    "required": ["id", "displayName", "email", "role"],
+                }
+            ),
+            seed_key=_catalog_seed_key("get-user"),
         ),
         EndpointCreate(
             name="Create User",
@@ -122,31 +146,32 @@ def seed():
             method="POST",
             path="/api/users",
             category="users",
+            tags=["users"],
             summary="Create a new user",
-            request_schema={
-                "type": "object",
-                "properties": {
-                    "displayName": {"type": "string"},
-                    "email": {"type": "string"},
-                },
-                "required": ["displayName", "email"],
-            },
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "displayName": {"type": "string"},
-                    "email": {"type": "string"},
-                    "createdAt": {"type": "string", "format": "date-time"},
-                },
-            },
-            example_template={
-                "id": "user-new",
-                "displayName": "New User",
-                "email": "new.user@mockservice.io",
-                "createdAt": "2026-01-01T00:00:00Z",
-            },
+            request_schema=request_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "displayName": {"type": "string"},
+                        "email": {"type": "string", "format": "email"},
+                    },
+                    "required": ["displayName", "email"],
+                }
+            ),
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "displayName": {"type": "string", "x-mock": {"generator": "full_name"}},
+                        "email": {"type": "string", "format": "email"},
+                        "createdAt": {"type": "string", "format": "date-time"},
+                    },
+                    "required": ["id", "displayName", "email", "createdAt"],
+                }
+            ),
             success_status_code=201,
+            seed_key=_catalog_seed_key("create-user"),
         ),
         EndpointCreate(
             name="List Devices",
@@ -154,25 +179,28 @@ def seed():
             method="GET",
             path="/api/devices",
             category="devices",
+            tags=["devices"],
             summary="List devices",
-            response_schema={
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "deviceId": {"type": "string"},
-                        "model": {"type": "string"},
-                        "status": {"type": "string"},
-                    },
-                },
-            },
-            example_template=[
+            response_schema=response_schema(
                 {
-                    "deviceId": "device-123",
-                    "model": "OctoCam 3000",
-                    "status": "Device rejected request due to insufficient vibes",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 4,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "deviceId": {"type": "string", "x-mock": {"generator": "slug"}},
+                            "model": {"type": "string", "x-mock": {"generator": "text"}},
+                            "status": {
+                                "type": "string",
+                                "enum": ["online", "idle", "calibrating", "vibing"],
+                            },
+                        },
+                        "required": ["deviceId", "model", "status"],
+                    },
                 }
-            ],
+            ),
+            seed_key=_catalog_seed_key("list-devices"),
         ),
         EndpointCreate(
             name="Get Device",
@@ -180,22 +208,21 @@ def seed():
             method="GET",
             path="/api/devices/{deviceId}",
             category="devices",
+            tags=["devices"],
             summary="Get device details",
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "deviceId": {"type": "string"},
-                    "model": {"type": "string"},
-                    "status": {"type": "string"},
-                    "lastSeen": {"type": "string", "format": "date-time"},
-                },
-            },
-            example_template={
-                "deviceId": "device-123",
-                "model": "OctoCam 3000",
-                "status": "All systems are go, mostly.",
-                "lastSeen": "2026-03-14T12:34:56Z",
-            },
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "deviceId": {"type": "string", "x-mock": {"generator": "slug"}},
+                        "model": {"type": "string", "x-mock": {"generator": "text"}},
+                        "status": {"type": "string", "enum": ["online", "idle", "maintenance"]},
+                        "lastSeen": {"type": "string", "format": "date-time"},
+                    },
+                    "required": ["deviceId", "model", "status", "lastSeen"],
+                }
+            ),
+            seed_key=_catalog_seed_key("get-device"),
         ),
         EndpointCreate(
             name="Trigger Something",
@@ -203,25 +230,21 @@ def seed():
             method="POST",
             path="/api/devices/{deviceId}/trigger-something",
             category="devices",
+            tags=["devices"],
             summary="Trigger a device action",
-            request_schema={
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string"},
-                },
-                "required": ["action"],
-            },
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "status": {"type": "string"},
-                    "message": {"type": "string"},
-                },
-            },
-            example_template={
-                "status": "ok",
-                "message": "The device is now performing the thing you asked for. Maybe.",
-            },
+            request_schema=request_schema(
+                {
+                    "type": "object",
+                    "properties": {"action": {"type": "string"}},
+                    "required": ["action"],
+                }
+            ),
+            response_schema=fixed_response(
+                {
+                    "status": "ok",
+                    "message": "The device is now doing the thing. It seems enthusiastic about it.",
+                }
+            ),
         ),
         EndpointCreate(
             name="Get Something",
@@ -229,18 +252,19 @@ def seed():
             method="GET",
             path="/api/devices/{deviceId}/get-something",
             category="devices",
+            tags=["devices"],
             summary="Get device derived data",
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "details": {"type": "string"},
-                    "query": {"type": "string"},
-                },
-            },
-            example_template={
-                "details": "The device reports that it is currently 73% sure it understands you.",
-                "query": "please provide something",
-            },
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "details": {"type": "string", "x-mock": {"generator": "text", "options": {"sentences": 2}}},
+                        "query": {"type": "string", "x-mock": {"mode": "fixed", "value": "please provide something"}},
+                    },
+                    "required": ["details", "query"],
+                }
+            ),
+            seed_key=_catalog_seed_key("get-something"),
         ),
         EndpointCreate(
             name="Create Order",
@@ -248,27 +272,30 @@ def seed():
             method="POST",
             path="/api/orders",
             category="orders",
+            tags=["orders"],
             summary="Create an order",
-            request_schema={
-                "type": "object",
-                "properties": {
-                    "productId": {"type": "string"},
-                    "quantity": {"type": "integer"},
-                },
-                "required": ["productId", "quantity"],
-            },
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "orderId": {"type": "string"},
-                    "status": {"type": "string"},
-                },
-            },
-            example_template={
-                "orderId": "order-999",
-                "status": "pending",
-            },
+            request_schema=request_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "productId": {"type": "string"},
+                        "quantity": {"type": "integer", "minimum": 1, "maximum": 10},
+                    },
+                    "required": ["productId", "quantity"],
+                }
+            ),
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "orderId": {"type": "string", "x-mock": {"generator": "uuid"}},
+                        "status": {"type": "string", "enum": ["pending", "confirmed"]},
+                    },
+                    "required": ["orderId", "status"],
+                }
+            ),
             success_status_code=201,
+            seed_key=_catalog_seed_key("create-order"),
         ),
         EndpointCreate(
             name="Get Order",
@@ -276,20 +303,20 @@ def seed():
             method="GET",
             path="/api/orders/{id}",
             category="orders",
+            tags=["orders"],
             summary="Get an order",
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "orderId": {"type": "string"},
-                    "status": {"type": "string"},
-                    "total": {"type": "number"},
-                },
-            },
-            example_template={
-                "orderId": "order-999",
-                "status": "processing",
-                "total": 42.42,
-            },
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "orderId": {"type": "string", "x-mock": {"generator": "uuid"}},
+                        "status": {"type": "string", "enum": ["processing", "packed", "sent"]},
+                        "total": {"type": "number", "minimum": 10, "maximum": 500, "x-mock": {"generator": "price"}},
+                    },
+                    "required": ["orderId", "status", "total"],
+                }
+            ),
+            seed_key=_catalog_seed_key("get-order"),
         ),
         EndpointCreate(
             name="Authorize Payment",
@@ -297,27 +324,30 @@ def seed():
             method="POST",
             path="/api/payments/authorize",
             category="payments",
+            tags=["payments"],
             summary="Authorize a payment",
-            request_schema={
-                "type": "object",
-                "properties": {
-                    "amount": {"type": "number"},
-                    "currency": {"type": "string"},
-                    "cardLast4": {"type": "string"},
-                },
-                "required": ["amount", "currency", "cardLast4"],
-            },
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "transactionId": {"type": "string"},
-                    "status": {"type": "string"},
-                },
-            },
-            example_template={
-                "transactionId": "txn-abc-123",
-                "status": "authorized",
-            },
+            request_schema=request_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "amount": {"type": "number", "minimum": 1},
+                        "currency": {"type": "string"},
+                        "cardLast4": {"type": "string", "minLength": 4, "maxLength": 4},
+                    },
+                    "required": ["amount", "currency", "cardLast4"],
+                }
+            ),
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "transactionId": {"type": "string", "x-mock": {"generator": "uuid"}},
+                        "status": {"type": "string", "enum": ["authorized", "requires_review"]},
+                    },
+                    "required": ["transactionId", "status"],
+                }
+            ),
+            seed_key=_catalog_seed_key("authorize-payment"),
         ),
         EndpointCreate(
             name="Report Generation Job",
@@ -325,26 +355,27 @@ def seed():
             method="POST",
             path="/api/jobs/report-generation",
             category="jobs",
+            tags=["jobs"],
             summary="Create a report generation job",
-            request_schema={
-                "type": "object",
-                "properties": {
-                    "reportType": {"type": "string"},
-                },
-                "required": ["reportType"],
-            },
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "jobId": {"type": "string"},
-                    "status": {"type": "string"},
-                },
-            },
-            example_template={
-                "jobId": "job-42",
-                "status": "pending",
-            },
+            request_schema=request_schema(
+                {
+                    "type": "object",
+                    "properties": {"reportType": {"type": "string"}},
+                    "required": ["reportType"],
+                }
+            ),
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "jobId": {"type": "string", "x-mock": {"generator": "uuid"}},
+                        "status": {"type": "string", "enum": ["pending", "queued"]},
+                    },
+                    "required": ["jobId", "status"],
+                }
+            ),
             success_status_code=202,
+            seed_key=_catalog_seed_key("report-job"),
         ),
         EndpointCreate(
             name="Job Status",
@@ -352,20 +383,20 @@ def seed():
             method="GET",
             path="/api/jobs/{jobId}/status",
             category="jobs",
+            tags=["jobs"],
             summary="Get job status",
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "jobId": {"type": "string"},
-                    "status": {"type": "string"},
-                    "progress": {"type": "number"},
-                },
-            },
-            example_template={
-                "jobId": "job-42",
-                "status": "in_progress",
-                "progress": 73,
-            },
+            response_schema=response_schema(
+                {
+                    "type": "object",
+                    "properties": {
+                        "jobId": {"type": "string", "x-mock": {"generator": "uuid"}},
+                        "status": {"type": "string", "enum": ["in_progress", "complete", "waiting_for_snacks"]},
+                        "progress": {"type": "number", "minimum": 0, "maximum": 100},
+                    },
+                    "required": ["jobId", "status", "progress"],
+                }
+            ),
+            seed_key=_catalog_seed_key("job-status"),
         ),
         EndpointCreate(
             name="Health",
@@ -373,20 +404,15 @@ def seed():
             method="GET",
             path="/api/health",
             category="system",
+            tags=["system"],
             summary="Health check",
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "status": {"type": "string"},
-                },
-            },
-            example_template={"status": "ok"},
+            response_schema=fixed_response({"status": "ok"}),
         ),
     ]
 
-    with get_session() as session:
-        for seed in seeds:
-            _upsert_endpoint(session, seed)
+    with session_scope() as session:
+        for item in seeds:
+            _upsert_endpoint(session, item)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -18,8 +19,6 @@ class EndpointBase(BaseModel):
     auth_mode: str = "none"
     request_schema: Optional[Dict[str, Any]] = Field(default_factory=dict)
     response_schema: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    example_template: Optional[Any] = Field(default_factory=dict)
-    response_mode: str = "random"
     success_status_code: int = 200
     error_rate: float = 0.0
     latency_min_ms: int = 0
@@ -44,8 +43,6 @@ class EndpointUpdate(BaseModel):
     auth_mode: Optional[str]
     request_schema: Optional[Dict[str, Any]]
     response_schema: Optional[Dict[str, Any]]
-    example_template: Optional[Dict[str, Any]]
-    response_mode: Optional[str]
     success_status_code: Optional[int]
     error_rate: Optional[float]
     latency_min_ms: Optional[int]
@@ -55,8 +52,42 @@ class EndpointUpdate(BaseModel):
 
 class EndpointRead(EndpointBase):
     id: int
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         orm_mode = True
+
+
+class PreviewRequest(BaseModel):
+    response_schema: Dict[str, Any] = Field(default_factory=dict)
+    seed_key: Optional[str] = None
+
+
+class PreviewResponse(BaseModel):
+    preview: Any
+
+
+class PublicEndpointReference(BaseModel):
+    id: int
+    name: str
+    method: str
+    path: str
+    example_path: str
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    success_status_code: int
+    request_schema: Dict[str, Any] = Field(default_factory=dict)
+    response_schema: Dict[str, Any] = Field(default_factory=dict)
+    sample_response: Any = None
+    updated_at: datetime
+
+
+class PublicReferenceResponse(BaseModel):
+    product_name: str
+    description: str
+    endpoint_count: int
+    refreshed_at: datetime
+    endpoints: List[PublicEndpointReference] = Field(default_factory=list)

@@ -8,6 +8,8 @@ Used during development.
 - Uses `.env` values.
 - Backend port: `8000`
 - Frontend port: `3000`
+- Public smoke target: `http://localhost:8000` should render the Mockingbird landing page and live quick reference.
+- Admin smoke target: `http://localhost:3000` should render the private Mockingbird admin shell.
 
 ## QA
 A profile intended for a more production-like smoke test.

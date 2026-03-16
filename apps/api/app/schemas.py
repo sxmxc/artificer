@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class EndpointBase(BaseModel):
     name: str
-    slug: str
+    slug: Optional[str] = None
     method: str
     path: str
     category: Optional[str] = None
@@ -51,6 +51,7 @@ class EndpointUpdate(BaseModel):
 
 
 class EndpointRead(EndpointBase):
+    slug: str
     id: int
     created_at: datetime
     updated_at: datetime
@@ -60,6 +61,7 @@ class EndpointRead(EndpointBase):
 
 class PreviewRequest(BaseModel):
     response_schema: Dict[str, Any] = Field(default_factory=dict)
+    path_parameters: Dict[str, str] = Field(default_factory=dict)
     seed_key: Optional[str] = None
 
 

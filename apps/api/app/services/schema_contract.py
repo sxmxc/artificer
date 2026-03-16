@@ -17,6 +17,14 @@ MOCK_VALUE_TYPE_ALIASES = {
     "fullname": "name",
     "float": "number",
     "longtext": "long_text",
+    "keyboard": "keyboard_key",
+    "keycap": "keyboard_key",
+    "hotkey": "keyboard_key",
+    "filename": "file_name",
+    "mime": "mime_type",
+    "contenttype": "mime_type",
+    "mediatype": "mime_type",
+    "systemverb": "verb",
 }
 STRING_FORMAT_BY_VALUE_TYPE = {
     "id": "uuid",
@@ -113,6 +121,18 @@ def guess_mock_value_type(property_name: str, schema: dict[str, Any]) -> str | N
         return "url"
     if schema_format == "uuid" or normalized_name in {"id", "uuid"} or normalized_name.endswith("_id"):
         return "id"
+    if normalized_name in {"username", "user_name", "handle"}:
+        return "username"
+    if "password" in normalized_name:
+        return "password"
+    if normalized_name in {"keyboard_key", "keyboardkey", "shortcut", "shortcut_key", "shortcutkey", "hotkey", "key_name", "keyname", "keycap"}:
+        return "keyboard_key"
+    if normalized_name in {"verb", "action", "command", "operation", "job_action", "jobaction", "system_action", "systemaction"}:
+        return "verb"
+    if normalized_name in {"file_name", "filename", "document_name", "documentname", "attachment_name", "attachmentname"}:
+        return "file_name"
+    if normalized_name in {"mime_type", "mimetype", "content_type", "contenttype", "media_type", "mediatype"}:
+        return "mime_type"
     if schema_format == "date":
         return "date"
     if schema_format == "date-time":

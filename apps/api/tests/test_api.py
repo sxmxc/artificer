@@ -118,7 +118,8 @@ def test_public_landing_reference_and_brand_asset(seeded_db):
     landing = client.get("/")
     assert landing.status_code == 200
     assert "Mockingbird" in landing.text
-    assert "Mock APIs with a little" in landing.text
+    assert "data and no bedside manner" in landing.text
+    assert "WARNING: The API may sometimes mock back." in landing.text
     assert "hero-title-accent" in landing.text
     assert "hero-panel-bottom" in landing.text
     assert "hero-panel-media" in landing.text
@@ -135,7 +136,7 @@ def test_public_landing_reference_and_brand_asset(seeded_db):
 
     api_landing = client.get("/api")
     assert api_landing.status_code == 200
-    assert "Everything currently live." in api_landing.text
+    assert "Browse live routes, inspect example payloads" in api_landing.text
 
     reference = client.get("/api/reference.json")
     assert reference.status_code == 200
@@ -320,7 +321,6 @@ def test_private_admin_paths_cannot_be_created_as_public_mocks(empty_db):
         "/api/admin/endpoints",
         json={
             "name": "Shadow Admin",
-            "slug": "shadow-admin",
             "method": "GET",
             "path": "/api/admin/shadow",
             "category": "security",
@@ -360,7 +360,6 @@ def test_admin_crud_lifecycle_supports_builder_extensions(empty_db):
     headers = _login_headers(client)
     payload = {
         "name": "List Gadgets",
-        "slug": "list-gadgets",
         "method": "GET",
         "path": "/api/gadgets",
         "category": "gadgets",
@@ -405,6 +404,7 @@ def test_admin_crud_lifecycle_supports_builder_extensions(empty_db):
     create_response = client.post("/api/admin/endpoints", json=payload, headers=headers)
     assert create_response.status_code == 201
     created = create_response.json()
+    assert created["slug"] == "list-gadgets"
     assert created["response_schema"]["properties"]["id"]["x-mock"]["type"] == "id"
     assert "example_template" not in created
     assert "response_mode" not in created
@@ -443,6 +443,71 @@ def test_admin_crud_lifecycle_supports_builder_extensions(empty_db):
     assert missing_response.status_code == 404
 
 
+def test_admin_endpoint_slugs_auto_generate_and_stay_unique(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    first_response = client.post(
+        "/api/admin/endpoints",
+        json={
+            "name": "Sync Job",
+            "method": "GET",
+            "path": "/api/sync-job",
+            "category": "jobs",
+            "tags": [],
+            "summary": "First sync job",
+            "description": "",
+            "enabled": True,
+            "auth_mode": "none",
+            "request_schema": {},
+            "response_schema": {"type": "object", "properties": {}, "required": [], "x-builder": {"order": []}, "x-mock": {"mode": "generate"}},
+            "success_status_code": 200,
+            "error_rate": 0.0,
+            "latency_min_ms": 0,
+            "latency_max_ms": 0,
+            "seed_key": None,
+        },
+        headers=headers,
+    )
+    assert first_response.status_code == 201
+    first_endpoint = first_response.json()
+    assert first_endpoint["slug"] == "sync-job"
+
+    second_response = client.post(
+        "/api/admin/endpoints",
+        json={
+            "name": "Sync Job",
+            "method": "GET",
+            "path": "/api/sync-job-copy",
+            "category": "jobs",
+            "tags": [],
+            "summary": "Second sync job",
+            "description": "",
+            "enabled": True,
+            "auth_mode": "none",
+            "request_schema": {},
+            "response_schema": {"type": "object", "properties": {}, "required": [], "x-builder": {"order": []}, "x-mock": {"mode": "generate"}},
+            "success_status_code": 200,
+            "error_rate": 0.0,
+            "latency_min_ms": 0,
+            "latency_max_ms": 0,
+            "seed_key": None,
+        },
+        headers=headers,
+    )
+    assert second_response.status_code == 201
+    second_endpoint = second_response.json()
+    assert second_endpoint["slug"] == "sync-job-2"
+
+    rename_response = client.put(
+        f"/api/admin/endpoints/{first_endpoint['id']}",
+        json={"name": "Restart Job"},
+        headers=headers,
+    )
+    assert rename_response.status_code == 200
+    assert rename_response.json()["slug"] == "restart-job"
+
+
 def test_preview_endpoint_is_seeded_and_type_correct(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)
@@ -470,6 +535,26 @@ def test_preview_endpoint_is_seeded_and_type_correct(empty_db):
                 "type": "string",
                 "x-mock": {"mode": "mocking", "type": "email", "options": {}},
             },
+            "passwordHash": {
+                "type": "string",
+                "x-mock": {"mode": "generate", "type": "password", "options": {}},
+            },
+            "shortcutKey": {
+                "type": "string",
+                "x-mock": {"mode": "generate", "type": "keyboard_key", "options": {}},
+            },
+            "action": {
+                "type": "string",
+                "x-mock": {"mode": "mocking", "type": "verb", "options": {}},
+            },
+            "fileName": {
+                "type": "string",
+                "x-mock": {"mode": "generate", "type": "file_name", "options": {}},
+            },
+            "contentType": {
+                "type": "string",
+                "x-mock": {"mode": "generate", "type": "mime_type", "options": {}},
+            },
             "price": {
                 "type": "number",
                 "minimum": 10,
@@ -485,30 +570,40 @@ def test_preview_endpoint_is_seeded_and_type_correct(empty_db):
                 "required": ["source"],
                 "x-builder": {"order": ["source"]},
             },
+            "pathUserId": {
+                "type": "string",
+                "x-mock": {
+                    "mode": "generate",
+                    "type": "path_parameter",
+                    "generator": "path_parameter",
+                    "parameter": "userId",
+                    "options": {"parameter": "userId"},
+                },
+            },
         },
-        "required": ["id", "email", "firstName", "displayName", "quote", "status", "teaser", "contact", "price", "details"],
-        "x-builder": {"order": ["id", "email", "firstName", "displayName", "quote", "status", "teaser", "contact", "price", "details"]},
+        "required": ["id", "email", "firstName", "displayName", "quote", "status", "teaser", "contact", "passwordHash", "shortcutKey", "action", "fileName", "contentType", "price", "details", "pathUserId"],
+        "x-builder": {"order": ["id", "email", "firstName", "displayName", "quote", "status", "teaser", "contact", "passwordHash", "shortcutKey", "action", "fileName", "contentType", "price", "details", "pathUserId"]},
         "x-mock": {"mode": "generate"},
     }
 
     first = client.post(
         "/api/admin/endpoints/preview-response",
-        json={"response_schema": response_schema, "seed_key": "stable-seed"},
+        json={"response_schema": response_schema, "seed_key": "stable-seed", "path_parameters": {"userId": "user-123"}},
         headers=headers,
     )
     second = client.post(
         "/api/admin/endpoints/preview-response",
-        json={"response_schema": response_schema, "seed_key": "stable-seed"},
+        json={"response_schema": response_schema, "seed_key": "stable-seed", "path_parameters": {"userId": "user-123"}},
         headers=headers,
     )
     third = client.post(
         "/api/admin/endpoints/preview-response",
-        json={"response_schema": response_schema, "seed_key": None},
+        json={"response_schema": response_schema, "seed_key": None, "path_parameters": {"userId": "user-123"}},
         headers=headers,
     )
     fourth = client.post(
         "/api/admin/endpoints/preview-response",
-        json={"response_schema": response_schema, "seed_key": None},
+        json={"response_schema": response_schema, "seed_key": None, "path_parameters": {"userId": "user-123"}},
         headers=headers,
     )
 
@@ -526,7 +621,67 @@ def test_preview_endpoint_is_seeded_and_type_correct(empty_db):
     assert isinstance(first_preview["displayName"], str) and " " in first_preview["displayName"]
     assert isinstance(first_preview["quote"], str) and len(first_preview["quote"]) > 64
     assert first_preview["contact"].endswith("@mockingbird.test")
-    assert any(token in first_preview["teaser"].lower() for token in {"mock", "payload", "qa", "response", "frontend"})
+    assert isinstance(first_preview["passwordHash"], str)
+    assert first_preview["passwordHash"].startswith("$2b$12$")
+    assert len(first_preview["passwordHash"]) == 60
+    assert first_preview["shortcutKey"] in {
+        "Enter",
+        "Escape",
+        "Tab",
+        "Space",
+        "Backspace",
+        "Delete",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Shift",
+        "Control",
+        "Alt",
+        "Meta",
+        "F1",
+        "F5",
+        "F12",
+        "A",
+        "C",
+        "K",
+        "/",
+    }
+    assert first_preview["action"] in {
+        "Start",
+        "Stop",
+        "Restart",
+        "Shutdown",
+        "Halt",
+        "Pause",
+        "Resume",
+        "Retry",
+        "Cancel",
+        "Enable",
+        "Disable",
+        "Start Job",
+        "Restart Job",
+        "Cancel Job",
+        "Stop Job",
+        "Archive",
+        "Restore",
+    }
+    assert isinstance(first_preview["fileName"], str) and "." in first_preview["fileName"]
+    assert first_preview["contentType"] in {
+        "application/json",
+        "application/pdf",
+        "application/xml",
+        "application/zip",
+        "image/jpeg",
+        "image/png",
+        "text/csv",
+        "text/plain",
+    }
+    assert first_preview["pathUserId"] == "user-123"
+    assert any(
+        token in first_preview["teaser"].lower()
+        for token in {"mock", "payload", "response", "sample", "schema", "staging", "tests", "demo"}
+    )
     assert isinstance(first_preview["price"], float)
     assert first_preview != fourth.json()["preview"] or third.json()["preview"] != fourth.json()["preview"]
 
@@ -598,6 +753,57 @@ def test_runtime_dispatch_matches_seeded_endpoints(seeded_db):
     assert health_response.json() == {"status": "ok"}
 
 
+def test_runtime_dispatch_can_echo_path_parameters_from_the_route(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/endpoints",
+        json={
+            "name": "Get route echo",
+            "method": "GET",
+            "path": "/api/orders/{orderId}",
+            "category": "orders",
+            "tags": ["orders"],
+            "summary": "Echo the order id from the route",
+            "description": "Uses the route parameter as a response value.",
+            "enabled": True,
+            "auth_mode": "none",
+            "request_schema": {},
+            "response_schema": {
+                "type": "object",
+                "properties": {
+                    "orderId": {
+                        "type": "string",
+                        "x-mock": {
+                            "mode": "generate",
+                            "type": "path_parameter",
+                            "generator": "path_parameter",
+                            "parameter": "orderId",
+                            "options": {"parameter": "orderId"},
+                        },
+                    }
+                },
+                "required": ["orderId"],
+                "x-builder": {"order": ["orderId"]},
+                "x-mock": {"mode": "generate"},
+            },
+            "success_status_code": 200,
+            "error_rate": 0.0,
+            "latency_min_ms": 0,
+            "latency_max_ms": 0,
+            "seed_key": "orders",
+        },
+        headers=headers,
+    )
+
+    assert create_response.status_code == 201
+
+    runtime_response = client.get("/api/orders/order-123")
+    assert runtime_response.status_code == 200
+    assert runtime_response.json() == {"orderId": "order-123"}
+
+
 def test_seeded_device_schemas_use_curated_model_enum_defaults(seeded_db):
     with Session(engine) as session:
         endpoints = {
@@ -630,7 +836,6 @@ def test_runtime_dispatch_ignores_disabled_endpoints(empty_db):
         "/api/admin/endpoints",
         json={
             "name": "Disabled Endpoint",
-            "slug": "disabled-endpoint",
             "method": "GET",
             "path": "/api/disabled",
             "category": "testing",
@@ -674,6 +879,15 @@ def test_openapi_strips_internal_extensions_and_emits_request_body(seeded_db):
     openapi = response.json()
     create_user = openapi["paths"]["/api/users"]["post"]
     assert "requestBody" in create_user
+    get_user = openapi["paths"]["/api/users/{id}"]["get"]
+    assert get_user["parameters"] == [
+        {
+            "in": "path",
+            "name": "id",
+            "required": True,
+            "schema": {"type": "string"},
+        }
+    ]
 
     response_schema = create_user["responses"]["201"]["content"]["application/json"]["schema"]
     assert "x-mock" not in response_schema

@@ -12,7 +12,7 @@ Mockingbird is built as a **monorepo** with a public API surface and a private a
   - **Postgres** is used as the single source of truth for endpoint definitions.
   - Private admin path space such as `/api/admin` is reserved and cannot be claimed by DB-backed public mock endpoints.
   - **OpenAPI generation** is performed at runtime from the active endpoint catalog.
-  - **Mock generation** supports fixed, true-random, and mocking-random response values from `response_schema`, with explicit semantic value types for context-aware data like IDs, names, emails, prices, and long-form text fields.
+  - **Mock generation** supports fixed, true-random, and mocking-random response values from `response_schema`, with explicit semantic value types for context-aware data like IDs, names, emails, prices, and long-form text fields, and a deliberately snarkier Mockingbird voice in `mocking` mode.
 
 - **Frontend (`apps/admin-web/`)**
   - Vue + Vite + Vuetify admin dashboard.

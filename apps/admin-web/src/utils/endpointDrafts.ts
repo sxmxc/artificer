@@ -41,20 +41,19 @@ export function describeSchema(schema: JsonObject | null | undefined, scope: Bui
   const tree = schemaToTree(schema, scope);
 
   if (tree.type === "object") {
-    return `${pluralize(tree.children.length, "root field")} across ${pluralize(countNodeFields(schema, scope), "node")}`;
+    return `${pluralize(tree.children.length, "top-level field")} across ${pluralize(countNodeFields(schema, scope), "field")}`;
   }
 
   if (tree.type === "array") {
-    return `Array root with ${tree.item ? tree.item.type : "empty"} items`;
+    return `Array with ${tree.item ? tree.item.type : "empty"} items`;
   }
 
-  return `${tree.type} root`;
+  return `${tree.type} value`;
 }
 
 export function createEmptyDraft(): EndpointDraft {
   return {
     name: "",
-    slug: "",
     method: "GET",
     path: "/api/",
     category: "",
@@ -76,7 +75,6 @@ export function createEmptyDraft(): EndpointDraft {
 export function draftFromEndpoint(endpoint: Endpoint): EndpointDraft {
   return {
     name: endpoint.name,
-    slug: endpoint.slug,
     method: endpoint.method,
     path: endpoint.path,
     category: endpoint.category ?? "",
@@ -98,11 +96,6 @@ export function draftFromEndpoint(endpoint: Endpoint): EndpointDraft {
 function buildNameCopyCandidate(name: string, copyNumber: number): string {
   const baseName = name.trim().replace(/\s+copy(?:\s+\d+)?$/i, "").trim() || "Untitled endpoint";
   return copyNumber === 1 ? `${baseName} copy` : `${baseName} copy ${copyNumber}`;
-}
-
-function buildSlugCopyCandidate(slug: string, copyNumber: number): string {
-  const baseSlug = slug.trim().replace(/-copy(?:-\d+)?$/i, "").trim() || "endpoint";
-  return copyNumber === 1 ? `${baseSlug}-copy` : `${baseSlug}-copy-${copyNumber}`;
 }
 
 function buildPathCopyCandidate(path: string, copyNumber: number): string {
@@ -139,18 +132,15 @@ function buildPathCopyCandidate(path: string, copyNumber: number): string {
 
 export function createDuplicateDraft(endpoint: Endpoint, existingEndpoints: Endpoint[]): EndpointDraft {
   const usedNames = new Set(existingEndpoints.map((item) => item.name.trim().toLowerCase()));
-  const usedSlugs = new Set(existingEndpoints.map((item) => item.slug.trim().toLowerCase()));
   const usedPaths = new Set(existingEndpoints.map((item) => item.path.trim()));
 
   let copyNumber = 1;
   let name = buildNameCopyCandidate(endpoint.name, copyNumber);
-  let slug = buildSlugCopyCandidate(endpoint.slug, copyNumber);
   let path = buildPathCopyCandidate(endpoint.path, copyNumber);
 
-  while (usedNames.has(name.toLowerCase()) || usedSlugs.has(slug.toLowerCase()) || usedPaths.has(path)) {
+  while (usedNames.has(name.toLowerCase()) || usedPaths.has(path)) {
     copyNumber += 1;
     name = buildNameCopyCandidate(endpoint.name, copyNumber);
-    slug = buildSlugCopyCandidate(endpoint.slug, copyNumber);
     path = buildPathCopyCandidate(endpoint.path, copyNumber);
   }
 
@@ -158,7 +148,6 @@ export function createDuplicateDraft(endpoint: Endpoint, existingEndpoints: Endp
   return {
     ...draft,
     name,
-    slug,
     path,
     enabled: false,
     request_schema: cloneJsonValue(draft.request_schema),
@@ -194,10 +183,6 @@ export function buildPayload(draft: EndpointDraft): { errors: Record<string, str
 
   if (!draft.name.trim()) {
     errors.name = "Name is required.";
-  }
-
-  if (!draft.slug.trim()) {
-    errors.slug = "Slug is required.";
   }
 
   if (!draft.path.trim()) {
@@ -238,7 +223,6 @@ export function buildPayload(draft: EndpointDraft): { errors: Record<string, str
     errors,
     payload: {
       name: draft.name.trim(),
-      slug: draft.slug.trim(),
       method: draft.method.toUpperCase(),
       path: draft.path.trim(),
       category: normalizeOptionalString(draft.category),

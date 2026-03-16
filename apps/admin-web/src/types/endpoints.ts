@@ -56,7 +56,7 @@ export interface AdminUserUpdatePayload {
 
 export interface EndpointPayload {
   name: string;
-  slug: string;
+  slug?: string | null;
   method: string;
   path: string;
   category: string | null;
@@ -74,7 +74,8 @@ export interface EndpointPayload {
   seed_key: string | null;
 }
 
-export interface Endpoint extends EndpointPayload {
+export interface Endpoint extends Omit<EndpointPayload, "slug"> {
+  slug: string;
   id: number;
   created_at: string;
   updated_at: string;
@@ -82,7 +83,6 @@ export interface Endpoint extends EndpointPayload {
 
 export interface EndpointDraft {
   name: string;
-  slug: string;
   method: string;
   path: string;
   category: string;

@@ -5,6 +5,7 @@ import random
 import re
 import time
 from typing import Any
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Request, Response
 from sqlmodel import Session
@@ -16,20 +17,28 @@ from app.services.mock_generation import preview_from_schema
 router = APIRouter()
 
 
-def _path_matches(request_path: str, pattern: str) -> bool:
+def _match_path_parameters(request_path: str, pattern: str) -> dict[str, str] | None:
     # Normalize
     request_path = request_path.rstrip("/") or "/"
     pattern = pattern.rstrip("/") or "/"
 
-    # Convert {param} to a regex segment
-    regex = re.sub(r"\{[^/]+\}", r"[^/]+", pattern)
+    parameter_names = re.findall(r"\{([^/}]+)\}", pattern)
+    regex = re.sub(r"\{[^/]+\}", r"([^/]+)", pattern)
     regex = f"^{regex}$"
-    return bool(re.match(regex, request_path))
+    match = re.match(regex, request_path)
+    if not match:
+        return None
+
+    return {
+        name: unquote(value)
+        for name, value in zip(parameter_names, match.groups())
+    }
 
 
-def _pick_response(endpoint: Any) -> Any:
+def _pick_response(endpoint: Any, path_parameters: dict[str, str]) -> Any:
     return preview_from_schema(
         endpoint.response_schema,
+        path_parameters=path_parameters,
         seed_key=endpoint.seed_key,
         identity=f"endpoint:{endpoint.id}:{endpoint.method}:{endpoint.path}",
     )
@@ -42,14 +51,19 @@ def catchall(full_path: str, request: Request, session: Session = Depends(get_se
 
     endpoints = list_endpoints(session, limit=1000)
     match = None
+    matched_path_parameters: dict[str, str] = {}
     for endpoint in endpoints:
         if not endpoint.enabled:
             continue
         if endpoint.method.upper() != method:
             continue
-        if _path_matches(request_path, endpoint.path):
-            match = endpoint
-            break
+        path_parameters = _match_path_parameters(request_path, endpoint.path)
+        if path_parameters is None:
+            continue
+
+        match = endpoint
+        matched_path_parameters = path_parameters
+        break
 
     if not match:
         return Response(status_code=404, content=json.dumps({"error": "Not found"}), media_type="application/json")
@@ -67,7 +81,7 @@ def catchall(full_path: str, request: Request, session: Session = Depends(get_se
             media_type="application/json",
         )
 
-    body = _pick_response(match)
+    body = _pick_response(match, matched_path_parameters)
     return Response(
         status_code=match.success_status_code,
         content=json.dumps(body, default=str),

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { AdminApiError, getEndpoint, previewResponse } from "../api/admin";
 import { useAuth } from "../composables/useAuth";
 import type { Endpoint } from "../types/endpoints";
+import { buildDefaultPathParameters, extractPathParameters, resolvePathParameters } from "../utils/pathParameters";
 
 const route = useRoute();
 const router = useRouter();
@@ -42,21 +43,6 @@ watch(endpoint, () => {
     void loadSamplePreview();
   }
 });
-
-function extractPathParameters(path: string): string[] {
-  return Array.from(path.matchAll(/\{([^}]+)\}/g), (match) => match[1]);
-}
-
-function buildDefaultPathParameters(path: string): Record<string, string> {
-  return extractPathParameters(path).reduce<Record<string, string>>((accumulator, key) => {
-    accumulator[key] = `sample-${key}`;
-    return accumulator;
-  }, {});
-}
-
-function resolvePath(path: string, parameters: Record<string, string>): string {
-  return path.replace(/\{([^}]+)\}/g, (_, key: string) => encodeURIComponent(parameters[key] || `sample-${key}`));
-}
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -99,6 +85,7 @@ async function loadSamplePreview(): Promise<void> {
     const response = await previewResponse(
       endpoint.value.response_schema ?? {},
       endpoint.value.seed_key ?? null,
+      pathParameters.value,
       auth.session.value,
     );
     samplePreview.value = prettyJson(response.preview);
@@ -130,7 +117,7 @@ async function runPreview(): Promise<void> {
       }
     }
 
-    const response = await fetch(resolvePath(endpoint.value.path, pathParameters.value), {
+    const response = await fetch(resolvePathParameters(endpoint.value.path, pathParameters.value), {
       method: endpoint.value.method,
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body,
@@ -164,10 +151,10 @@ async function runPreview(): Promise<void> {
   <div class="d-flex flex-column ga-4">
     <div class="d-flex flex-column flex-lg-row justify-space-between ga-4">
       <div>
-        <div class="text-overline text-secondary">Public route preview</div>
-        <div class="text-h3 font-weight-bold mt-2">{{ endpoint?.name || "Loading preview" }}</div>
+        <div class="text-overline text-secondary">Test route</div>
+        <div class="text-h3 font-weight-bold mt-2">{{ endpoint?.name || "Loading route" }}</div>
         <div class="text-body-1 text-medium-emphasis mt-3">
-          Run the public mock route directly so preview behavior matches live runtime dispatch.
+          Send sample input and inspect the live response for this route.
         </div>
       </div>
 
@@ -185,7 +172,7 @@ async function runPreview(): Promise<void> {
           variant="text"
           @click="router.push({ name: 'schema-editor', params: { endpointId: endpoint.id } })"
         >
-          Schema studio
+          Edit schema
         </v-btn>
       </div>
     </div>
@@ -210,20 +197,20 @@ async function runPreview(): Promise<void> {
       <v-card class="workspace-card">
         <v-card-text class="d-flex flex-wrap justify-space-between ga-3">
           <div class="d-flex flex-wrap ga-2">
-            <v-chip color="primary" label variant="tonal">{{ endpoint.method }}</v-chip>
-            <v-chip :color="endpoint.enabled ? 'accent' : 'surface-variant'" label variant="tonal">
+            <v-chip color="primary" label size="small" variant="tonal">{{ endpoint.method }}</v-chip>
+            <v-chip :color="endpoint.enabled ? 'accent' : 'error'" label size="small" variant="tonal">
               {{ endpoint.enabled ? "Live" : "Disabled" }}
             </v-chip>
-            <v-chip label variant="outlined">{{ endpoint.path }}</v-chip>
+            <v-chip label size="small" variant="outlined">{{ endpoint.path }}</v-chip>
           </div>
           <v-btn color="primary" :loading="isRunning" prepend-icon="mdi-play-circle-outline" @click="runPreview">
-            Run preview
+            Send request
           </v-btn>
         </v-card-text>
       </v-card>
 
       <v-alert v-if="!endpoint.enabled" border="start" color="info" variant="tonal">
-        This endpoint is disabled, so the public preview is expected to return a 404.
+        This route is disabled, so this request should return a 404.
       </v-alert>
 
       <v-alert v-if="previewError" border="start" color="error" variant="tonal">
@@ -234,8 +221,8 @@ async function runPreview(): Promise<void> {
         <v-col cols="12" lg="5">
           <v-card class="workspace-card fill-height">
             <v-card-item>
-              <v-card-title>Request setup</v-card-title>
-              <v-card-subtitle>Provide path parameters and a request body when the method expects one.</v-card-subtitle>
+              <v-card-title>Request</v-card-title>
+              <v-card-subtitle>Set path values and send a JSON body when this route uses one.</v-card-subtitle>
             </v-card-item>
             <v-divider />
             <v-card-text class="d-flex flex-column ga-4">
@@ -243,19 +230,19 @@ async function runPreview(): Promise<void> {
                 v-for="key in extractPathParameters(endpoint.path)"
                 :key="key"
                 v-model="pathParameters[key]"
-                :label="`Path param: ${key}`"
+                :label="`Path parameter: ${key}`"
               />
 
               <v-textarea
                 v-if="!['GET', 'DELETE'].includes(endpoint.method)"
                 v-model="requestBody"
                 auto-grow
-                label="Request body JSON"
+                label="Request body"
                 rows="10"
               />
 
               <div v-if="samplePreview" class="d-flex flex-column ga-2">
-                <div class="text-overline text-medium-emphasis">Schema sample</div>
+                <div class="text-overline text-medium-emphasis">Sample response</div>
                 <pre class="code-block">{{ samplePreview }}</pre>
               </div>
             </v-card-text>
@@ -270,13 +257,13 @@ async function runPreview(): Promise<void> {
                 {{
                   previewResult
                     ? `${previewResult.status} ${previewResult.statusText} • ${previewResult.contentType}`
-                    : "Run the public route to inspect the live response."
+                    : "Send the request to inspect the live response."
                 }}
               </v-card-subtitle>
             </v-card-item>
             <v-divider />
             <v-card-text>
-              <pre class="code-block">{{ previewResult?.body ?? "(run the preview to see the response body)" }}</pre>
+              <pre class="code-block">{{ previewResult?.body ?? "(send the request to see the response body)" }}</pre>
             </v-card-text>
           </v-card>
         </v-col>

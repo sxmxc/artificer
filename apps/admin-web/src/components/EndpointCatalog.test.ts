@@ -47,6 +47,24 @@ const endpoints = [
 ];
 
 describe("EndpointCatalog", () => {
+  it("keeps the search field out of the vertical grow track", () => {
+    render(EndpointCatalog, {
+      props: {
+        activeEndpointId: 1,
+        endpoints,
+        error: null,
+        loading: false,
+      },
+      global: {
+        plugins: [vuetify],
+      },
+    });
+
+    expect(
+      screen.getByPlaceholderText("Search by name, path, method, or category").closest(".catalog-search"),
+    ).not.toBeNull();
+  });
+
   it("filters the visible routes by search text", async () => {
     render(EndpointCatalog, {
       props: {
@@ -87,7 +105,7 @@ describe("EndpointCatalog", () => {
       },
     });
 
-    const duplicateButton = document.querySelector('[aria-label="Duplicate endpoint"]');
+    const duplicateButton = document.querySelector('[aria-label="Duplicate route"]');
     expect(duplicateButton).not.toBeNull();
     duplicateButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
@@ -127,6 +145,6 @@ describe("EndpointCatalog", () => {
 
     expect(screen.getByText("Endpoint 1")).toBeInTheDocument();
     expect(screen.getByText("Endpoint 10")).toBeInTheDocument();
-    expect(screen.getByText("Showing 1-2 of 2 endpoints")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1-2 of 2 routes")).toBeInTheDocument();
   });
 });

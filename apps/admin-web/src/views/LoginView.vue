@@ -44,17 +44,10 @@ async function handleSubmit(): Promise<void> {
       <div class="d-flex flex-column ga-5">
         <v-card class="workspace-card auth-intro-card">
           <v-card-text class="pa-8 pa-sm-9">
-            <div class="text-overline text-secondary">Private admin studio</div>
-            <div class="text-h3 font-weight-bold mt-2">Welcome back to Mockingbird</div>
+            <div class="text-overline text-secondary">Admin access</div>
+            <div class="text-h3 font-weight-bold mt-2">Sign in to Mockingbird</div>
             <div class="text-body-1 text-medium-emphasis mt-4 auth-support-copy">
-              This is the private side of Mockingbird: the place to shape schemas, tune responses, and keep the live
-              mock catalog feeling polished. The public API stays open out front; the studio is where you refine what it serves.
-            </div>
-
-            <div class="d-flex flex-wrap ga-2 mt-6">
-              <v-chip color="primary" label variant="tonal">Endpoint catalog</v-chip>
-              <v-chip color="secondary" label variant="tonal">Schema studio</v-chip>
-              <v-chip color="info" label variant="tonal">Live previews</v-chip>
+              Manage routes, edit request and response schemas, and check the live output before you hand the route to someone else.
             </div>
           </v-card-text>
         </v-card>
@@ -67,8 +60,8 @@ async function handleSubmit(): Promise<void> {
               </v-avatar>
             </template>
 
-            <v-card-title>Sign in to the studio</v-card-title>
-            <v-card-subtitle>Use your dashboard account. Fresh installs may print a one-time bootstrap password in the API logs.</v-card-subtitle>
+            <v-card-title>Sign in</v-card-title>
+            <v-card-subtitle>Use your admin account. New installs may show a temporary bootstrap password in the API logs.</v-card-subtitle>
           </v-card-item>
 
           <v-divider />
@@ -117,7 +110,7 @@ async function handleSubmit(): Promise<void> {
               />
 
               <div class="text-caption text-medium-emphasis">
-                Leave this off on a shared machine. When enabled, Mockingbird restores a session token instead of storing your password in the browser.
+                Leave this off on a shared device.
               </div>
 
               <v-btn
@@ -128,7 +121,7 @@ async function handleSubmit(): Promise<void> {
                 size="large"
                 type="submit"
               >
-                Enter the studio
+                Sign in
               </v-btn>
             </v-form>
           </v-card-text>

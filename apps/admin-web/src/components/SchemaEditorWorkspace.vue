@@ -1,36 +1,50 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from "vue";
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
 import { AdminApiError, previewResponse } from "../api/admin";
 import SchemaNodeCard from "./SchemaNodeCard.vue";
+import { copyText } from "../utils/clipboard";
 import { useAuth } from "../composables/useAuth";
+import { setPillDragImage } from "../utils/dragGhost";
+import { highlightJson } from "../utils/jsonHighlight";
 import {
-  formatForValueType,
   GENERATOR_OPTIONS,
   PALETTE_TYPES,
   addNodeToContainer,
+  applyPathParameter,
+  applyValueType,
   canAcceptChildren,
   deleteNode,
   duplicateNode,
   findNode,
+  insertNewNodeBeforeSibling,
   insertNewNodeAfterSibling,
-  moveNodeAfterSibling,
+  isScalarNode,
+  moveNodeBeforeSibling,
   moveNodeToContainer,
-  recommendedMaxLengthForValueType,
+  nodeLabel,
   resetNodeType,
   schemaToTree,
   treeToSchema,
   updateNode,
+  valueTypeLabel,
   type BuilderNodeType,
   type BuilderScope,
+  type GeneratorOption,
   type MockMode,
   type SchemaBuilderNode,
 } from "../schemaBuilder";
 import type { JsonObject, JsonValue } from "../types/endpoints";
 
-type DragPayload = { kind: "palette"; nodeType: BuilderNodeType } | { kind: "node"; nodeId: string };
+type DragPayload =
+  | { kind: "mode-palette"; mode: MockMode }
+  | { kind: "node-palette"; nodeType: BuilderNodeType }
+  | { kind: "path-parameter"; parameter: string }
+  | { kind: "value-palette"; valueType: string }
+  | { kind: "node"; nodeId: string };
 
 const props = defineProps<{
+  pathParameters?: string[];
   schema: JsonObject;
   scope: BuilderScope;
   seedKey?: string;
@@ -38,6 +52,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:schema": [schema: JsonObject];
+  "update:seedKey": [seedKey: string];
 }>();
 
 const auth = useAuth();
@@ -53,20 +68,91 @@ const rootShapeOptions = [
   { title: "Boolean", value: "boolean" },
 ] as const;
 
-const stringFormatOptions = [
-  { title: "Plain text", value: "" },
-  { title: "Email", value: "email" },
-  { title: "UUID", value: "uuid" },
-  { title: "URL", value: "uri" },
-  { title: "Date", value: "date" },
-  { title: "DateTime", value: "date-time" },
-  { title: "Time", value: "time" },
-];
-
 const modeOptions = [
   { title: "True random", value: "generate" },
   { title: "Mocking random", value: "mocking" },
   { title: "Static", value: "fixed" },
+];
+const behaviorPalette = [
+  { value: "generate", label: "Random", icon: "mdi-shuffle-variant" },
+  { value: "mocking", label: "Mocking", icon: "mdi-auto-fix" },
+  { value: "fixed", label: "Static", icon: "mdi-lock-outline" },
+] as const;
+const paletteIconByType: Record<BuilderNodeType, string> = {
+  array: "mdi-code-brackets",
+  boolean: "mdi-toggle-switch-outline",
+  enum: "mdi-format-list-bulleted-square",
+  integer: "mdi-pound",
+  number: "mdi-decimal",
+  object: "mdi-code-braces",
+  string: "mdi-format-letter-case",
+};
+const paletteOptions = PALETTE_TYPES.map((item) => ({
+  ...item,
+  icon: paletteIconByType[item.type],
+}));
+const valueTypeIconByType: Record<string, string> = {
+  text: "mdi-text-box-outline",
+  long_text: "mdi-text-long",
+  id: "mdi-identifier",
+  username: "mdi-account-circle-outline",
+  password: "mdi-form-textbox-password",
+  keyboard_key: "mdi-keyboard-outline",
+  verb: "mdi-console",
+  email: "mdi-email-outline",
+  url: "mdi-link-variant",
+  slug: "mdi-tag-outline",
+  file_name: "mdi-file-outline",
+  mime_type: "mdi-file-code-outline",
+  date: "mdi-calendar-blank-outline",
+  datetime: "mdi-calendar-clock-outline",
+  time: "mdi-clock-time-four-outline",
+  first_name: "mdi-account-outline",
+  last_name: "mdi-account-box-outline",
+  name: "mdi-badge-account-outline",
+  company: "mdi-office-building-outline",
+  phone: "mdi-phone-outline",
+  street_address: "mdi-home-map-marker",
+  city: "mdi-city-variant-outline",
+  state: "mdi-map-marker-outline",
+  country: "mdi-earth",
+  postal_code: "mdi-mailbox-outline",
+  avatar_url: "mdi-image-outline",
+  integer: "mdi-pound",
+  number: "mdi-decimal",
+  boolean: "mdi-toggle-switch-outline",
+  price: "mdi-cash-multiple",
+  enum: "mdi-format-list-bulleted-square",
+};
+
+type ValuePaletteSection = { items: Array<GeneratorOption & { icon: string }>; label: string };
+type ValuePaletteDefinition = { label: string; values?: string[]; types?: BuilderNodeType[] };
+
+const valuePaletteDefinitions: ValuePaletteDefinition[] = [
+  {
+    label: "Identity",
+    values: ["text", "long_text", "id", "username", "password", "email", "first_name", "last_name", "name", "company", "avatar_url"],
+  },
+  {
+    label: "Web & time",
+    values: ["url", "slug", "date", "datetime", "time"],
+  },
+  {
+    label: "Location & contact",
+    values: ["phone", "street_address", "city", "state", "country", "postal_code"],
+  },
+  {
+    label: "System",
+    values: ["keyboard_key", "verb", "file_name", "mime_type"],
+  },
+  {
+    label: "Numeric",
+    types: ["integer", "number"],
+  },
+  {
+    label: "Discrete",
+    types: ["boolean", "enum"],
+  },
 ];
 
 const tree = shallowRef<SchemaBuilderNode>(schemaToTree(props.schema, props.scope));
@@ -80,29 +166,127 @@ const previewBody = ref("");
 const previewError = ref<string | null>(null);
 const fixedJsonDraft = ref("");
 const fixedJsonError = ref<string | null>(null);
+const responseRailTab = ref<"preview" | "schema">("preview");
 let previewTimer: number | null = null;
+const schemaCopyState = ref<"idle" | "copied" | "failed">("idle");
+const previewCopyState = ref<"idle" | "copied" | "failed">("idle");
+let schemaCopyTimer: number | null = null;
+let previewCopyTimer: number | null = null;
 
 const serializedIncomingSchema = computed(() => JSON.stringify(props.schema ?? {}));
 const normalizedSeedKey = computed(() => {
   const trimmed = props.seedKey?.trim() ?? "";
   return trimmed ? trimmed : null;
 });
+const schemaJsonText = computed(() => JSON.stringify(liveSchema.value, null, 2));
+const previewPaneText = computed(() => responseRailTab.value === "preview" ? (previewBody.value || "{}") : schemaJsonText.value);
+const highlightedPreviewBody = computed(() => highlightJson(previewBody.value || "{}"));
+const highlightedSchemaBody = computed(() => highlightJson(liveSchema.value));
+const schemaCopyLabel = computed(() => {
+  if (schemaCopyState.value === "copied") {
+    return "Copied";
+  }
+
+  if (schemaCopyState.value === "failed") {
+    return "Copy failed";
+  }
+
+  return "Copy JSON";
+});
+const previewCopyLabel = computed(() => {
+  if (previewCopyState.value === "copied") {
+    return "Copied";
+  }
+
+  if (previewCopyState.value === "failed") {
+    return "Copy failed";
+  }
+
+  return responseRailTab.value === "preview" ? "Copy sample" : "Copy schema";
+});
 
 const liveSchema = ref<JsonObject>({});
 const selectedNode = shallowRef<SchemaBuilderNode>(tree.value);
 const selectedParent = shallowRef<SchemaBuilderNode | null>(null);
+const responsePathParameters = computed(() => props.scope === "response" ? [...new Set(props.pathParameters ?? [])] : []);
+const previewPathParameters = computed(() =>
+  responsePathParameters.value.reduce<Record<string, string>>((accumulator, parameter) => {
+    accumulator[parameter] = `sample-${parameter}`;
+    return accumulator;
+  }, {}),
+);
 const selectedIsRoot = computed(() => selectedNode.value.id === tree.value.id);
-const selectedCanAcceptChildren = computed(() => canAcceptChildren(selectedNode.value));
+const selectedShowsQuickAdd = computed(() => selectedNode.value.type === "object");
+const selectedShowsItemShape = computed(() => selectedNode.value.type === "array");
+const selectedHasValueLane = computed(() => props.scope === "response" && isScalarNode(selectedNode.value));
+const selectedUsesPathParameter = computed(() => selectedHasValueLane.value && Boolean(selectedNode.value.parameterSource));
+const selectedNodeLabel = computed(() => nodeLabel(selectedNode.value, selectedIsRoot.value));
+const selectedPath = computed(() => {
+  const path = findNodePath(tree.value, selectedNodeId.value) ?? [tree.value];
+  return path.map((node, index) => nodeLabel(node, index === 0)).join(" / ");
+});
+const totalFieldCount = computed(() => countFields(tree.value, true));
+const canvasTitle = computed(() => props.scope === "response" ? "Response schema" : "Request");
+const canvasSubtitle = computed(() => props.scope === "response" ? "Add, group, and reorder response fields." : "Define the request JSON body.");
+const rootContractLabel = computed(() => {
+  if (tree.value.type === "object") {
+    const fieldCount = tree.value.children.length;
+    return fieldCount === 1 ? "1 top-level field" : `${fieldCount} top-level fields`;
+  }
+
+  if (tree.value.type === "array") {
+    return "One repeated item shape";
+  }
+
+  return "Single value";
+});
 const showValueTypeSelector = computed(() => {
-  if (props.scope !== "response" || selectedNode.value.mode === "fixed") {
+  if (!selectedHasValueLane.value || selectedNode.value.mode === "fixed" || selectedUsesPathParameter.value) {
     return false;
   }
 
   return availableGenerators.value.length > 1;
 });
+const editableSeedKey = computed({
+  get: () => props.seedKey ?? "",
+  set: (value: string | null) => emit("update:seedKey", String(value ?? "")),
+});
+const selectedValueType = computed(() => selectedHasValueLane.value ? selectedNode.value.generator : null);
+const selectedValueTypeLabel = computed(() => {
+  if (!selectedHasValueLane.value) {
+    return null;
+  }
+
+  if (selectedNode.value.parameterSource) {
+    return selectedNode.value.parameterSource;
+  }
+
+  return selectedNode.value.mode === "fixed" ? "Fixed value" : valueTypeLabel(selectedNode.value.generator);
+});
 const availableGenerators = computed(() => {
   const type = selectedNode.value.type;
   return GENERATOR_OPTIONS.filter((option) => option.types.includes(type));
+});
+const valuePaletteSections = computed<ValuePaletteSection[]>(() => {
+  const withIcons = GENERATOR_OPTIONS.map((option) => ({
+    ...option,
+    icon: valueTypeIconByType[option.value] ?? "mdi-shape-outline",
+  }));
+
+  return valuePaletteDefinitions
+    .map((section) => {
+      const items = section.values
+        ? section.values
+            .map((value) => withIcons.find((option) => option.value === value) ?? null)
+            .filter((option): option is GeneratorOption & { icon: string } => Boolean(option))
+        : withIcons.filter((option) => section.types?.some((type) => option.types.includes(type)));
+
+      return {
+        label: section.label,
+        items,
+      };
+    })
+    .filter((section) => section.items.length > 0);
 });
 
 function toSchemaSnapshot(nextTree: SchemaBuilderNode): JsonObject {
@@ -195,6 +379,71 @@ function findParentNode(root: SchemaBuilderNode, targetId: string, parent: Schem
   return null;
 }
 
+function findNodePath(
+  root: SchemaBuilderNode,
+  targetId: string,
+  trail: SchemaBuilderNode[] = [],
+): SchemaBuilderNode[] | null {
+  const nextTrail = [...trail, root];
+  if (root.id === targetId) {
+    return nextTrail;
+  }
+
+  for (const child of root.children) {
+    const result = findNodePath(child, targetId, nextTrail);
+    if (result) {
+      return result;
+    }
+  }
+
+  if (root.item) {
+    const result = findNodePath(root.item, targetId, nextTrail);
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+}
+
+function countFields(node: SchemaBuilderNode, root = false): number {
+  const selfCount = root ? 0 : 1;
+  return selfCount + node.children.reduce((total, child) => total + countFields(child), 0) + (node.item ? countFields(node.item) : 0);
+}
+
+function scheduleCopyStateReset(target: "schema" | "preview"): void {
+  const timer = target === "schema" ? schemaCopyTimer : previewCopyTimer;
+  if (timer) {
+    window.clearTimeout(timer);
+  }
+
+  const resetTimer = window.setTimeout(() => {
+    if (target === "schema") {
+      schemaCopyState.value = "idle";
+      schemaCopyTimer = null;
+    } else {
+      previewCopyState.value = "idle";
+      previewCopyTimer = null;
+    }
+  }, 1600);
+
+  if (target === "schema") {
+    schemaCopyTimer = resetTimer;
+  } else {
+    previewCopyTimer = resetTimer;
+  }
+}
+
+function setCopyState(target: "schema" | "preview", copied: boolean): void {
+  if (target === "schema") {
+    schemaCopyState.value = copied ? "copied" : "failed";
+  } else {
+    previewCopyState.value = copied ? "copied" : "failed";
+  }
+
+  scheduleCopyStateReset(target);
+}
+
 function commitTree(nextTree: SchemaBuilderNode): void {
   tree.value = nextTree;
   liveSchema.value = toSchemaSnapshot(nextTree);
@@ -206,19 +455,82 @@ function commitTree(nextTree: SchemaBuilderNode): void {
   emit("update:schema", liveSchema.value);
 }
 
-function startPaletteDrag(nodeType: BuilderNodeType): void {
-  dragPayload.value = { kind: "palette", nodeType };
+function setDragData(event: DragEvent | undefined, value: string, effect: "copy" | "move"): void {
+  if (!event?.dataTransfer) {
+    return;
+  }
+
+  event.dataTransfer.effectAllowed = effect;
+  event.dataTransfer.dropEffect = effect;
+  event.dataTransfer.setData("text/plain", value);
 }
 
-function startNodeDrag(nodeId: string): void {
+function markDragSource(event?: DragEvent): void {
+  const source = event?.currentTarget;
+  if (!(source instanceof HTMLElement)) {
+    return;
+  }
+
+  source.classList.add("schema-drag-source");
+  source.addEventListener("dragend", () => {
+    source.classList.remove("schema-drag-source");
+  }, { once: true });
+}
+
+function startNodePaletteDrag(nodeType: BuilderNodeType, event?: DragEvent): void {
+  dragPayload.value = { kind: "node-palette", nodeType };
+  setDragData(event, `node-palette:${nodeType}`, "copy");
+  markDragSource(event);
+  setPillDragImage(event, {
+    eyebrow: "Node",
+    label: paletteOptions.find((item) => item.type === nodeType)?.label ?? nodeType,
+    tone: "node",
+  });
+}
+
+function startValuePaletteDrag(valueType: string, event?: DragEvent): void {
+  dragPayload.value = { kind: "value-palette", valueType };
+  setDragData(event, `value-palette:${valueType}`, "copy");
+  markDragSource(event);
+  setPillDragImage(event, {
+    eyebrow: "Value",
+    label: valueTypeLabel(valueType),
+    tone: "value",
+  });
+}
+
+function startPathParameterDrag(parameter: string, event?: DragEvent): void {
+  dragPayload.value = { kind: "path-parameter", parameter };
+  setDragData(event, `path-parameter:${parameter}`, "copy");
+  markDragSource(event);
+  setPillDragImage(event, {
+    eyebrow: "Route",
+    label: parameter,
+    tone: "value",
+  });
+}
+
+function startModePaletteDrag(mode: MockMode, event?: DragEvent): void {
+  dragPayload.value = { kind: "mode-palette", mode };
+  setDragData(event, `mode-palette:${mode}`, "copy");
+  markDragSource(event);
+  setPillDragImage(event, {
+    eyebrow: "Behavior",
+    label: behaviorPalette.find((item) => item.value === mode)?.label ?? mode,
+    tone: "mode",
+  });
+}
+
+function startNodeDrag(nodeId: string, event?: DragEvent): void {
   dragPayload.value = { kind: "node", nodeId };
+  setDragData(event, `node:${nodeId}`, "move");
 }
 
 function clearDragPayload(): void {
   dragPayload.value = null;
 }
 
-function addFromPalette(nodeType: BuilderNodeType): void {
+function addNodeFromPalette(nodeType: BuilderNodeType): void {
   const currentNode = selectedNode.value;
   const parentNode = selectedParent.value;
 
@@ -235,29 +547,77 @@ function addFromPalette(nodeType: BuilderNodeType): void {
   commitTree(addNodeToContainer(tree.value, tree.value.id, nodeType, props.scope));
 }
 
+function applyValueTypeFromPalette(valueType: string): void {
+  if (!selectedHasValueLane.value) {
+    return;
+  }
+
+  commitTree(applyValueType(tree.value, selectedNode.value.id, valueType, props.scope));
+}
+
+function applyPathParameterFromPalette(parameter: string): void {
+  if (!selectedHasValueLane.value) {
+    return;
+  }
+
+  commitTree(applyPathParameter(tree.value, selectedNode.value.id, parameter, props.scope));
+}
+
+function applyModeToNode(nodeId: string, mode: MockMode): void {
+  if (props.scope !== "response") {
+    return;
+  }
+
+  commitTree(updateNode(tree.value, nodeId, (node) => ({
+    ...node,
+    mode,
+    parameterSource: null,
+  })));
+}
+
 function handleDropOnContainer(containerId: string): void {
   if (!dragPayload.value) {
     return;
   }
 
-  if (dragPayload.value.kind === "palette") {
+  if (dragPayload.value.kind === "node-palette") {
     commitTree(addNodeToContainer(tree.value, containerId, dragPayload.value.nodeType, props.scope));
   } else {
-    commitTree(moveNodeToContainer(tree.value, dragPayload.value.nodeId, containerId));
+    if (dragPayload.value.kind === "node") {
+      commitTree(moveNodeToContainer(tree.value, dragPayload.value.nodeId, containerId));
+    }
   }
 
   clearDragPayload();
 }
 
-function handleDropAfterRow(nodeId: string): void {
+function handleDropBeforeRow(nodeId: string): void {
   if (!dragPayload.value) {
     return;
   }
 
-  if (dragPayload.value.kind === "palette") {
-    commitTree(insertNewNodeAfterSibling(tree.value, nodeId, dragPayload.value.nodeType, props.scope));
+  if (dragPayload.value.kind === "node-palette") {
+    commitTree(insertNewNodeBeforeSibling(tree.value, nodeId, dragPayload.value.nodeType, props.scope));
   } else {
-    commitTree(moveNodeAfterSibling(tree.value, dragPayload.value.nodeId, nodeId));
+    if (dragPayload.value.kind === "node") {
+      commitTree(moveNodeBeforeSibling(tree.value, dragPayload.value.nodeId, nodeId));
+    }
+  }
+
+  clearDragPayload();
+}
+
+function handleDropOnValue(nodeId: string): void {
+  if (!dragPayload.value) {
+    return;
+  }
+
+  if (dragPayload.value.kind === "path-parameter") {
+    commitTree(applyPathParameter(tree.value, nodeId, dragPayload.value.parameter, props.scope));
+  } else if (dragPayload.value.kind === "value-palette") {
+    commitTree(applyValueType(tree.value, nodeId, dragPayload.value.valueType, props.scope));
+  } else if (dragPayload.value.kind === "mode-palette") {
+    applyModeToNode(nodeId, dragPayload.value.mode);
   }
 
   clearDragPayload();
@@ -298,31 +658,21 @@ function updateEnumValues(rawValue: string): void {
 
 function updateSelectedValueType(rawValue: unknown): void {
   const valueType = String(rawValue ?? "").trim() || null;
-  const nextFormat = selectedNode.value.type === "string" ? formatForValueType(valueType) : selectedNode.value.format;
-  const currentRecommendedLength = recommendedMaxLengthForValueType(selectedNode.value.generator);
-  const nextRecommendedLength = recommendedMaxLengthForValueType(valueType);
+  if (!valueType) {
+    return;
+  }
 
-  updateSelectedNode((node) => ({
-    ...node,
-    generator: valueType,
-    format: node.type === "string" ? nextFormat : node.format,
-    maxLength:
-      node.type !== "string"
-        ? node.maxLength
-        : node.maxLength == null
-          ? nextRecommendedLength
-          : node.maxLength === currentRecommendedLength
-            ? nextRecommendedLength
-            : valueType === "long_text" && node.maxLength < nextRecommendedLength
-              ? nextRecommendedLength
-              : node.maxLength,
-  }));
+  commitTree(applyValueType(tree.value, selectedNode.value.id, valueType, props.scope));
 }
 
 async function copySchema(): Promise<void> {
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(JSON.stringify(liveSchema.value, null, 2));
-  }
+  const copied = await copyText(schemaJsonText.value);
+  setCopyState("schema", copied);
+}
+
+async function copyPreviewPane(): Promise<void> {
+  const copied = await copyText(previewPaneText.value);
+  setCopyState("preview", copied);
 }
 
 function importSchema(): void {
@@ -376,7 +726,12 @@ async function runPreview(force = false): Promise<void> {
   previewError.value = null;
 
   try {
-    const response = await previewResponse(liveSchema.value, normalizedSeedKey.value, auth.session.value);
+    const response = await previewResponse(
+      liveSchema.value,
+      normalizedSeedKey.value,
+      previewPathParameters.value,
+      auth.session.value,
+    );
     previewBody.value = JSON.stringify(response.preview, null, 2);
     previewStatus.value = "success";
   } catch (error) {
@@ -402,6 +757,40 @@ function previewModeLabel(mode: MockMode): string {
 
   return "random";
 }
+
+function nodeValueBadge(node: SchemaBuilderNode): string | null {
+  if (!isScalarNode(node)) {
+    return null;
+  }
+
+  if (node.parameterSource) {
+    return node.parameterSource;
+  }
+
+  return node.mode === "fixed" ? "Fixed value" : valueTypeLabel(node.generator);
+}
+
+function nodeBehaviorLabel(node: SchemaBuilderNode): string {
+  if (node.parameterSource) {
+    return "route value";
+  }
+
+  return previewModeLabel(node.mode);
+}
+
+onBeforeUnmount(() => {
+  if (previewTimer) {
+    window.clearTimeout(previewTimer);
+  }
+
+  if (schemaCopyTimer) {
+    window.clearTimeout(schemaCopyTimer);
+  }
+
+  if (previewCopyTimer) {
+    window.clearTimeout(previewCopyTimer);
+  }
+});
 </script>
 
 <template>
@@ -412,55 +801,126 @@ function previewModeLabel(mode: MockMode): string {
           <v-card-item>
             <template #prepend>
               <v-avatar color="secondary" variant="tonal">
-                <v-icon icon="mdi-pill" />
+                <v-icon icon="mdi-toy-brick-plus-outline" />
               </v-avatar>
             </template>
 
-            <v-card-title>Palette</v-card-title>
-            <v-card-subtitle>Use draggable Vuetify chips or click to add around the selected node.</v-card-subtitle>
+            <v-card-title>Add fields</v-card-title>
+            <v-card-subtitle>Click or drag a field into the schema.</v-card-subtitle>
           </v-card-item>
           <v-divider />
           <v-card-text class="d-flex flex-column ga-4">
-            <div class="d-flex flex-wrap ga-3">
-              <v-chip
-                v-for="item in PALETTE_TYPES"
-                :key="item.type"
-                class="schema-pill"
-                color="primary"
-                :draggable="true"
-                label
-                variant="outlined"
-                @click="addFromPalette(item.type)"
-                @dragstart="startPaletteDrag(item.type)"
-              >
-                {{ item.label }}
-              </v-chip>
+            <div class="d-flex flex-column ga-3">
+              <div class="schema-section-label">Field types</div>
+              <div class="schema-palette-grid">
+                <v-chip
+                  v-for="item in paletteOptions"
+                  :key="item.type"
+                  :data-palette-type="item.type"
+                  class="schema-pill"
+                  :class="{ 'schema-pill-active': selectedNode.type === item.type }"
+                  :draggable="true"
+                  label
+                  size="small"
+                  variant="elevated"
+                  @click="addNodeFromPalette(item.type)"
+                  @dragstart="startNodePaletteDrag(item.type, $event)"
+                >
+                  <template #prepend>
+                    <v-icon :icon="item.icon" size="18" />
+                  </template>
+                  {{ item.label }}
+                </v-chip>
+              </div>
             </div>
 
-            <v-alert border="start" color="info" icon="mdi-cursor-move" variant="tonal">
-              Drag chips into object or array containers, or click a chip to insert it near the selected node.
-            </v-alert>
-          </v-card-text>
-        </v-card>
+            <div v-if="responsePathParameters.length" class="d-flex flex-column ga-3">
+              <div class="d-flex flex-wrap align-center justify-space-between ga-2">
+                <div class="schema-section-label">Route values</div>
+                <div class="text-caption text-medium-emphasis">
+                  {{ selectedUsesPathParameter ? selectedNode.parameterSource : "Link a field to a path parameter" }}
+                </div>
+              </div>
+              <div class="schema-value-palette-wrap">
+                <v-chip
+                  v-for="parameter in responsePathParameters"
+                  :key="parameter"
+                  :data-path-parameter="parameter"
+                  class="schema-value-pill schema-value-pill-parameter"
+                  :class="{ 'schema-value-pill-active': selectedUsesPathParameter && selectedNode.parameterSource === parameter }"
+                  :draggable="true"
+                  label
+                  size="small"
+                  variant="elevated"
+                  @click="applyPathParameterFromPalette(parameter)"
+                  @dragstart="startPathParameterDrag(parameter, $event)"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-variable" size="18" />
+                  </template>
+                  {{ parameter }}
+                </v-chip>
+              </div>
+            </div>
 
-        <v-card class="workspace-card">
-          <v-card-item>
-            <v-card-title>Root shape</v-card-title>
-            <v-card-subtitle>Switch the top-level contract without leaving the studio.</v-card-subtitle>
-          </v-card-item>
-          <v-divider />
-          <v-card-text>
-            <v-btn-toggle
-              class="root-shape-toggle"
-              divided
-              mandatory
-              :model-value="tree.type"
-              @update:model-value="(value) => value && commitTree(resetNodeType(tree, tree.id, value, scope))"
-            >
-              <v-btn v-for="option in rootShapeOptions" :key="option.value" :value="option.value" size="small">
-                {{ option.title }}
-              </v-btn>
-            </v-btn-toggle>
+            <div v-if="scope === 'response'" class="d-flex flex-column ga-3">
+              <div class="schema-section-label">Value mode</div>
+              <div class="schema-value-palette-wrap">
+                <v-chip
+                  v-for="item in behaviorPalette"
+                  :key="item.value"
+                  :data-value-mode="item.value"
+                  class="schema-mode-pill"
+                  :class="{ 'schema-mode-pill-active': selectedHasValueLane && selectedNode.mode === item.value }"
+                  :draggable="true"
+                  label
+                  size="small"
+                  variant="elevated"
+                  @click="selectedHasValueLane && applyModeToNode(selectedNode.id, item.value)"
+                  @dragstart="startModePaletteDrag(item.value, $event)"
+                >
+                  <template #prepend>
+                    <v-icon :icon="item.icon" size="16" />
+                  </template>
+                  {{ item.label }}
+                </v-chip>
+              </div>
+            </div>
+
+            <div v-if="scope === 'response'" class="d-flex flex-column ga-3">
+              <div class="d-flex flex-wrap align-center justify-space-between ga-2">
+                <div class="schema-section-label">Value type</div>
+                <div class="text-caption text-medium-emphasis">
+                  {{ selectedHasValueLane ? selectedValueTypeLabel : "Select a value field" }}
+                </div>
+              </div>
+
+              <div class="schema-value-palette">
+                <div v-for="section in valuePaletteSections" :key="section.label" class="schema-value-group">
+                  <div class="schema-mini-label">{{ section.label }}</div>
+                  <div class="schema-value-palette-wrap">
+                    <v-chip
+                      v-for="item in section.items"
+                      :key="item.value"
+                      :data-value-type="item.value"
+                      class="schema-value-pill"
+                      :class="{ 'schema-value-pill-active': selectedHasValueLane && selectedValueType === item.value }"
+                      :draggable="true"
+                      label
+                      size="small"
+                      variant="elevated"
+                      @click="applyValueTypeFromPalette(item.value)"
+                      @dragstart="startValuePaletteDrag(item.value, $event)"
+                    >
+                      <template #prepend>
+                        <v-icon :icon="item.icon" size="16" />
+                      </template>
+                      {{ item.label }}
+                    </v-chip>
+                  </div>
+                </div>
+              </div>
+            </div>
           </v-card-text>
         </v-card>
 
@@ -472,8 +932,8 @@ function previewModeLabel(mode: MockMode): string {
               </v-avatar>
             </template>
 
-            <v-card-title>Inspector</v-card-title>
-            <v-card-subtitle>Edit the selected node instead of juggling raw JSON.</v-card-subtitle>
+            <v-card-title>Field settings</v-card-title>
+            <v-card-subtitle>Edit the selected field.</v-card-subtitle>
 
             <template #append>
               <div class="d-flex ga-2">
@@ -499,6 +959,33 @@ function previewModeLabel(mode: MockMode): string {
           <v-divider />
 
           <v-card-text class="d-flex flex-column ga-4">
+            <div class="d-flex flex-wrap ga-2">
+              <v-chip color="primary" label size="small" variant="tonal">
+                {{ selectedNode.type }}
+              </v-chip>
+              <v-chip
+                v-if="scope === 'response'"
+                color="secondary"
+                label
+                size="small"
+                variant="tonal"
+              >
+                {{ nodeBehaviorLabel(selectedNode) }}
+              </v-chip>
+              <v-chip v-if="!selectedIsRoot && selectedNode.required" color="accent" label size="small" variant="tonal">
+                required
+              </v-chip>
+              <v-chip
+                v-if="selectedHasValueLane"
+                :color="selectedUsesPathParameter ? 'primary' : 'success'"
+                label
+                size="small"
+                variant="tonal"
+              >
+                {{ nodeValueBadge(selectedNode) }}
+              </v-chip>
+            </div>
+
             <v-text-field
               :disabled="selectedIsRoot"
               label="Field name"
@@ -510,7 +997,7 @@ function previewModeLabel(mode: MockMode): string {
               :items="rootShapeOptions"
               item-title="title"
               item-value="value"
-              label="Node type"
+              label="Field type"
               :model-value="selectedNode.type"
               @update:model-value="(value) => value && commitTree(resetNodeType(tree, selectedNode.id, value, scope))"
             />
@@ -533,13 +1020,20 @@ function previewModeLabel(mode: MockMode): string {
             />
 
             <v-select
-              v-if="scope === 'response'"
+              v-if="scope === 'response' && !selectedUsesPathParameter"
               :items="modeOptions"
               item-title="title"
               item-value="value"
               label="Value mode"
               :model-value="selectedNode.mode"
               @update:model-value="updateSelectedNode((node) => ({ ...node, mode: String($event ?? 'generate') as MockMode }))"
+            />
+
+            <v-text-field
+              v-else-if="selectedUsesPathParameter"
+              label="Route parameter"
+              :model-value="selectedNode.parameterSource"
+              readonly
             />
 
             <v-select
@@ -550,16 +1044,6 @@ function previewModeLabel(mode: MockMode): string {
               label="Value type"
               :model-value="selectedNode.generator"
               @update:model-value="updateSelectedValueType"
-            />
-
-            <v-select
-              v-if="selectedNode.type === 'string'"
-              :items="stringFormatOptions"
-              item-title="title"
-              item-value="value"
-              label="Format"
-              :model-value="selectedNode.format"
-              @update:model-value="updateSelectedNode((node) => ({ ...node, format: String($event ?? '') }))"
             />
 
             <v-row v-if="selectedNode.type === 'string'">
@@ -666,12 +1150,28 @@ function previewModeLabel(mode: MockMode): string {
               />
             </template>
 
-            <div v-if="selectedCanAcceptChildren" class="d-flex flex-column ga-3">
-              <div class="text-overline text-medium-emphasis">Quick add</div>
+            <div v-if="selectedShowsQuickAdd" class="d-flex flex-column ga-3">
+              <div class="text-overline text-medium-emphasis">Add inside this object</div>
               <div class="d-flex flex-wrap ga-2">
                 <v-chip
                   v-for="item in PALETTE_TYPES"
                   :key="`quick-${item.type}`"
+                  color="secondary"
+                  label
+                  variant="tonal"
+                  @click="commitTree(addNodeToContainer(tree, selectedNode.id, item.type, scope))"
+                >
+                  {{ item.label }}
+                </v-chip>
+              </div>
+            </div>
+
+            <div v-else-if="selectedShowsItemShape" class="d-flex flex-column ga-3">
+              <div class="text-overline text-medium-emphasis">Item shape</div>
+              <div class="d-flex flex-wrap ga-2">
+                <v-chip
+                  v-for="item in PALETTE_TYPES"
+                  :key="`array-item-${item.type}`"
                   color="secondary"
                   label
                   variant="tonal"
@@ -686,7 +1186,7 @@ function previewModeLabel(mode: MockMode): string {
       </div>
     </v-col>
 
-    <v-col cols="12" xl="5" lg="5">
+    <v-col cols="12" xl="6" lg="6">
       <v-card class="workspace-card fill-height">
         <v-card-item>
           <template #prepend>
@@ -695,10 +1195,8 @@ function previewModeLabel(mode: MockMode): string {
             </v-avatar>
           </template>
 
-          <v-card-title>Canvas</v-card-title>
-          <v-card-subtitle>
-            Build the {{ scope }} payload visually with clear reorder and nesting drop zones.
-          </v-card-subtitle>
+          <v-card-title>{{ canvasTitle }}</v-card-title>
+          <v-card-subtitle>{{ canvasSubtitle }}</v-card-subtitle>
 
           <template #append>
             <div class="d-flex flex-wrap ga-2">
@@ -706,7 +1204,7 @@ function previewModeLabel(mode: MockMode): string {
                 Import
               </v-btn>
               <v-btn prepend-icon="mdi-content-copy" variant="text" @click="copySchema">
-                Copy JSON
+                {{ schemaCopyLabel }}
               </v-btn>
             </div>
           </template>
@@ -715,6 +1213,41 @@ function previewModeLabel(mode: MockMode): string {
         <v-divider />
 
         <v-card-text class="schema-canvas">
+          <div class="schema-canvas-toolbar">
+            <div class="schema-canvas-context">
+              <div class="schema-section-label">Selected field</div>
+              <div class="schema-canvas-heading">
+                <div class="text-subtitle-1 font-weight-medium">
+                  {{ selectedNodeLabel }}
+                </div>
+                <v-chip color="primary" label size="small" variant="tonal">
+                  {{ selectedNode.type }}
+                </v-chip>
+              </div>
+              <div class="schema-canvas-path text-body-2 text-medium-emphasis">
+                {{ selectedPath }}
+              </div>
+            </div>
+
+            <div class="schema-canvas-meta">
+              <v-chip color="primary" label size="small" variant="tonal">
+                {{ totalFieldCount }} {{ totalFieldCount === 1 ? "field" : "fields" }}
+              </v-chip>
+              <v-chip label size="small" variant="outlined">
+                {{ tree.type }} root
+              </v-chip>
+              <v-chip
+                v-if="selectedHasValueLane"
+                :color="selectedUsesPathParameter ? 'primary' : 'success'"
+                label
+                size="small"
+                variant="tonal"
+              >
+                {{ nodeValueBadge(selectedNode) }}
+              </v-chip>
+            </div>
+          </div>
+
           <SchemaNodeCard
             :active-node-id="selectedNodeId"
             :node="tree"
@@ -723,7 +1256,8 @@ function previewModeLabel(mode: MockMode): string {
             root
             :scope="scope"
             @drop-container="handleDropOnContainer"
-            @drop-row="handleDropAfterRow"
+            @drop-row="handleDropBeforeRow"
+            @drop-value="handleDropOnValue"
             @select="selectedNodeId = $event"
             @start-drag="startNodeDrag"
           />
@@ -731,8 +1265,8 @@ function previewModeLabel(mode: MockMode): string {
       </v-card>
     </v-col>
 
-    <v-col cols="12" xl="4" lg="4">
-      <div class="d-flex flex-column ga-4">
+    <v-col class="schema-preview-col" cols="12" xl="3" lg="3">
+      <div class="schema-preview-stack d-flex flex-column ga-4">
         <v-card v-if="scope === 'response'" class="workspace-card">
           <v-card-item>
             <template #prepend>
@@ -741,14 +1275,14 @@ function previewModeLabel(mode: MockMode): string {
               </v-avatar>
             </template>
 
-            <v-card-title>Generated preview</v-card-title>
+            <v-card-title>Live preview</v-card-title>
             <v-card-subtitle>
-              {{ normalizedSeedKey ? "Seeded preview stays deterministic." : "Preview refreshes with new random samples." }}
+              {{ normalizedSeedKey ? "Seeded output stays deterministic." : "Leave the seed blank for fresh samples." }}
             </v-card-subtitle>
 
             <template #append>
               <v-btn
-                v-if="!normalizedSeedKey"
+                v-if="!normalizedSeedKey && responseRailTab === 'preview'"
                 prepend-icon="mdi-refresh"
                 variant="text"
                 @click="runPreview(true)"
@@ -760,18 +1294,69 @@ function previewModeLabel(mode: MockMode): string {
 
           <v-divider />
 
-          <v-card-text>
-            <v-chip color="secondary" label size="small" variant="tonal" class="mb-4">
-              {{ previewModeLabel(selectedNode.mode) }}
-            </v-chip>
+          <v-card-text class="d-flex flex-column ga-4">
+            <div class="d-flex flex-wrap ga-2">
+              <v-chip color="secondary" label size="small" variant="tonal">
+                {{ nodeBehaviorLabel(selectedNode) }}
+              </v-chip>
+              <v-chip color="primary" label size="small" variant="tonal">
+                {{ totalFieldCount }} {{ totalFieldCount === 1 ? "field" : "fields" }}
+              </v-chip>
+              <v-chip label size="small" variant="outlined">
+                {{ selectedNode.type }}
+              </v-chip>
+            </div>
 
-            <v-skeleton-loader v-if="previewStatus === 'loading'" type="paragraph, paragraph, paragraph" />
+            <v-text-field
+              v-model="editableSeedKey"
+              clearable
+              hint="Optional deterministic seed for preview and runtime output."
+              label="Seed key"
+              persistent-hint
+              placeholder="Optional deterministic seed"
+            />
 
-            <v-alert v-else-if="previewStatus === 'error' && previewError" border="start" color="error" variant="tonal">
+            <v-tabs v-model="responseRailTab" color="secondary" density="compact">
+              <v-tab value="preview">Sample response</v-tab>
+              <v-tab value="schema">JSON Schema</v-tab>
+            </v-tabs>
+
+            <v-skeleton-loader v-if="responseRailTab === 'preview' && previewStatus === 'loading'" type="paragraph, paragraph, paragraph" />
+
+            <v-alert
+              v-else-if="responseRailTab === 'preview' && previewStatus === 'error' && previewError"
+              border="start"
+              color="error"
+              variant="tonal"
+            >
               {{ previewError }}
             </v-alert>
 
-            <pre v-else class="code-block">{{ previewBody }}</pre>
+            <div v-else class="schema-code-pane">
+              <v-btn
+                class="schema-code-pane__copy"
+                color="primary"
+                density="compact"
+                prepend-icon="mdi-content-copy"
+                size="small"
+                variant="tonal"
+                @click="copyPreviewPane"
+              >
+                {{ previewCopyLabel }}
+              </v-btn>
+
+              <!-- eslint-disable vue/no-v-html -->
+              <pre
+                v-if="responseRailTab === 'preview'"
+                class="code-block code-block--json-editor"
+              ><code class="code-block__code" v-html="highlightedPreviewBody" /></pre>
+
+              <pre
+                v-else
+                class="code-block code-block--json-editor"
+              ><code class="code-block__code" v-html="highlightedSchemaBody" /></pre>
+              <!-- eslint-enable vue/no-v-html -->
+            </div>
           </v-card-text>
         </v-card>
 
@@ -783,15 +1368,24 @@ function previewModeLabel(mode: MockMode): string {
               </v-avatar>
             </template>
 
-            <v-card-title>Schema preview</v-card-title>
-            <v-card-subtitle>Review the request payload contract as live JSON Schema.</v-card-subtitle>
+            <v-card-title>Request body</v-card-title>
+            <v-card-subtitle>Current JSON body schema.</v-card-subtitle>
+            <template #append>
+              <v-chip color="primary" label size="small" variant="tonal">
+                {{ totalFieldCount }} {{ totalFieldCount === 1 ? "field" : "fields" }}
+              </v-chip>
+            </template>
           </v-card-item>
           <v-divider />
           <v-card-text class="d-flex flex-column ga-4">
-            <v-alert border="start" color="info" variant="tonal">
-              Request authoring currently targets JSON request bodies. Query and path parameter modeling is still a later
-              follow-up.
-            </v-alert>
+            <div class="d-flex flex-wrap ga-2">
+              <v-chip label size="small" variant="outlined">
+                {{ selectedNode.type }}
+              </v-chip>
+              <v-chip color="secondary" label size="small" variant="tonal">
+                {{ rootContractLabel }}
+              </v-chip>
+            </div>
 
             <pre class="code-block">{{ JSON.stringify(liveSchema, null, 2) }}</pre>
           </v-card-text>
@@ -804,7 +1398,7 @@ function previewModeLabel(mode: MockMode): string {
     <v-card class="workspace-card">
       <v-card-item>
         <v-card-title>Import schema</v-card-title>
-        <v-card-subtitle>Paste a JSON Schema object and the studio will normalize it into the builder tree.</v-card-subtitle>
+        <v-card-subtitle>Paste a JSON Schema object.</v-card-subtitle>
       </v-card-item>
       <v-divider />
       <v-card-text class="d-flex flex-column ga-4">
@@ -844,6 +1438,24 @@ function previewModeLabel(mode: MockMode): string {
   }
 
   .schema-sidebar {
+    height: calc(100vh - var(--v-layout-top, 88px) - 3rem);
+    max-height: calc(100vh - var(--v-layout-top, 88px) - 3rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+    padding-bottom: 0.35rem;
+    scrollbar-gutter: stable;
+  }
+
+  .schema-preview-col {
+    display: flex;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+  }
+
+  .schema-preview-stack {
+    width: 100%;
     height: calc(100vh - var(--v-layout-top, 88px) - 3rem);
     max-height: calc(100vh - var(--v-layout-top, 88px) - 3rem);
     overflow-y: auto;

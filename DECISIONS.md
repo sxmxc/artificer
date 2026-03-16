@@ -113,4 +113,69 @@
 - **User management**: Add a dedicated security surface and admin API for password rotation plus superuser-controlled user creation, editing, disabling, and deletion.
 - **Route separation**: Reserve `/api/admin` and other system-owned public paths such as `/api` and `/api/reference.json` so DB-defined public mock endpoints cannot collide with or impersonate private admin routes.
 
+## 2026-03-15: Compact schema-studio workspace and focused frontend coverage
+- **Builder tools rail**: Merge the schema palette and root-shape controls into one left-rail card so the canvas starts higher and the desktop workspace wastes less vertical space.
+- **Preview rail**: Move the response seed key into the right preview rail and pair generated output with a JSON Schema tab so determinism controls stay adjacent to the preview instead of living in a separate card.
+- **Coverage strategy**: Cover schema-studio drag/drop, response-preview auth expiry, and auth-session restore/login behavior with focused Vitest tests so the tighter builder workflow is protected without depending on fragile manual-only QA.
+
+## 2026-03-15: Schema-studio pill tree and reorder affordances
+- **Canvas form**: Present the schema canvas as a connected pill tree rather than stacked nested cards so hierarchy reads faster and the builder matches the product's more diagram-like authoring intent.
+- **Insertion model**: Use compact plus-icon anchors for both "append into container" and "insert before this sibling" actions, keeping drop targets visible without dedicating large empty drop zones to every node.
+- **Drag payloads**: Write explicit `dataTransfer` payloads for palette chips and node drags so real browsers can distinguish add-vs-move operations reliably, which restores row reordering on the live canvas.
+
+## 2026-03-15: Schema-studio density and anchor layout
+- **Visual density**: Favor slimmer, higher-contrast pills and a tighter canvas header so the builder reads as a designed tool rather than as oversized chips floating in spare space.
+- **Tree anchors**: Keep "insert before" anchors inline with each child row and reserve dashed tail anchors for "append at end" actions, because stacked pre-row buttons made the branch rail look visually broken.
+- **Desktop weighting**: Bias the 3-column studio toward the canvas on desktop by widening the middle column and trimming the preview rail so authoring remains the primary visual task.
+
+## 2026-03-15: Schema-studio node/value palette split
+- **Tool model**: Separate the builder tools into structural node pills plus response-only value-behavior and value-type pills, instead of keeping an armed-tool state or duplicating root-shape controls in the palette.
+- **Canvas contract**: Treat the tree's key rail as the place for structural drops and the scalar value lane as the place for response semantics, so users can drag structure and meaning to visibly different targets.
+- **Semantic authoring**: Make value types the primary scalar-semantic control, inferring compatible node coercions and string formats from the dropped value type instead of asking users to reconcile a separate format selector.
+
+## 2026-03-16: Schema-studio drag feel and tree geometry
+- **Canvas density**: Keep key pills, value pills, and branch anchors compact enough that the tree reads as one diagram instead of a stack of chunky tags.
+- **Branch alignment**: Align branch-end add anchors with the row-level insertion anchors on the same rail so object tails do not look offset or broken.
+- **Drag affordance**: Use custom pill-shaped drag ghosts and type-specific node icons, because the browser's default drag screenshot made the builder feel sloppy and less intentional.
+
+## 2026-03-16: Task-first schema-studio language
+- **Surface naming**: Prefer user-task terms such as `Live preview` and `Item shape` over internal layout terms like `Preview rail` when the label is visible in-product.
+- **Header copy**: Use endpoint-specific context such as the route name or summary in the schema page header, and strip implementation narration that explains how the page is assembled instead of what the user is editing.
+- **Array model**: Present arrays as one repeated item template, not as generic multi-child containers, so the editor's language matches the JSON Schema contract it saves.
+
+## 2026-03-16: Route-first product language and linked path parameters
+- **Route vocabulary**: Use `Routes`, `Schema`, and `Test route` consistently across the admin and public surfaces so the product speaks in terms of the user's workflow instead of internal UI architecture.
+- **Path ownership**: Treat path parameters as route-owned inputs derived from the saved path template, and expose them in the response editor as route-value pills so users can echo real URL segments without recreating them in the JSON body tree.
+- **OpenAPI output**: Publish path placeholders from the route path as required OpenAPI path parameters by default so the generated contract matches what the response editor and route preview already imply.
+
+## 2026-03-16: Response value palette coverage
+- **Route value links**: Store route-parameter response links in `x-mock` metadata so they survive schema save/load, work in authenticated previews, and echo actual public-route path values at runtime.
+- **Credential-like strings**: Include `Username` and `Password` as first-class semantic string value types so common auth/demo payloads do not require falling back to generic text.
+- **Password safety**: Make the `Password` generator emit bcrypt-style hashes rather than cleartext-looking secrets, because realistic mock payloads should still respect common production data expectations.
+
+## 2026-03-16: Compact admin controls and explicit route-status badges
+- **Density**: Default the main admin controls to Vuetify `compact` density so forms, buttons, and chips read as a denser tool rather than a roomy marketing surface.
+- **Tags authoring**: Use a chip-based tag input for route tags instead of a comma-separated text field, because tags behave like discrete removable items rather than prose.
+- **Disabled state**: Use the error palette for disabled route badges anywhere route status is summarized, because low-contrast neutral chips made the disabled state too easy to miss.
+
+## 2026-03-16: Backend-only route slugs
+- **User workflow**: Remove `slug` from the route settings form so users only manage the route name/path and do not have to understand an internal identifier that does not affect runtime routing.
+- **Backend bookkeeping**: Keep `slug` on the backend model for seed/import/admin bookkeeping, but auto-generate and de-duplicate it from the route name during admin create/update requests.
+- **Duplication flow**: Make route duplication adjust the visible name/path only; the internal slug should follow from the copied name instead of being edited directly.
+
+## 2026-03-16: Mockingbird voice on the public site and in mocking-mode data
+- **Hero tone**: Keep the public homepage headline playful and slightly irreverent, and restore the small warning callout so the landing page feels branded rather than like a generic API catalog.
+- **Mocking-mode copy**: Let `mocking` generation sound sharper and more sarcastic than plain random mode, while keeping the content contract-safe, deterministic under seeds, and free of targeted abuse.
+
+## 2026-03-16: Preview-rail JSON panes
+- **Editor treatment**: Render the schema-studio sample response and JSON Schema tabs as syntax-highlighted JSON panes so they feel closer to a code viewer than plain `<pre>` text.
+- **Overflow behavior**: Keep overflow scrolling inside the JSON pane itself so large sample payloads do not stretch the preview rail, while preserving code-style horizontal scrolling for long lines.
+- **Copy affordance**: Keep schema-copy actions available both in the canvas header and inside the preview pane, using a clipboard fallback so copy still works in browsers where `navigator.clipboard` is unavailable.
+
+## 2026-03-16: Local production-like runtime mode
+- **Compose shape**: Use a separate `docker-compose.prod-local.yml` instead of pretending the existing dev compose has a real QA profile, because the production-like stack needs different Docker targets, commands, and the Nginx-served admin runtime.
+- **Swap workflow**: Keep the same service names and named Postgres volume between dev and local runtime mode so contributors can swap from `make up` to `make up-prod-local` without losing local endpoint data.
+- **Make ergonomics**: Expose the runtime smoke path through dedicated make targets (`up-prod-local`, `down-prod-local`, `build-prod-local`, `logs-prod-local`) so testing the built stack stays as easy as the normal dev workflow.
+
+
 *> Future decisions should append a dated entry with context and rationale.*

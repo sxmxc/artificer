@@ -25,11 +25,39 @@ make up
 - OpenAPI JSON: http://localhost:8000/openapi.json
 - API docs: http://localhost:8000/docs
 
+## Local production-like mode
+
+If you want to run the checked-out repo in a production-like local mode instead of the hot-reload dev stack:
+
+```sh
+make up-prod-local
+```
+
+That command uses [docker-compose.prod-local.yml](/home/devadmin/projects/mockingbird/docker-compose.prod-local.yml), which:
+
+- builds the Dockerfiles' `runtime` targets from your local source tree
+- starts the API through `start.prod.sh` without `uvicorn --reload`
+- serves the admin app from the built SPA behind Nginx instead of the Vite dev server
+- keeps the same service names, default Compose project, and named Postgres volume so Compose recreates the existing stack in place and you can swap between `make up` and `make up-prod-local` without resetting the DB
+
+Stop it with:
+
+```sh
+make down-prod-local
+```
+
+If you want to remove the production-like local DB volume too:
+
+```sh
+make clean-prod-local
+```
+
 ## Bootstrap notes
 
 - `make up` is safe to run from a bind-mounted checkout even if `start.sh` does not have the executable bit set on the host.
 - The repo root includes `.node-version` and `.python-version` files so `nvm`, `mise`, `asdf`, or similar tooling can match the supported local runtimes quickly.
 - Local Compose explicitly builds the Dockerfiles' `dev` targets so the API keeps `uvicorn --reload` and the admin app keeps the Vite dev server for fast iteration.
+- The local production-like Compose file builds the `runtime` targets instead, so it is useful for smoke-testing the built/Nginx-backed stack before a real deployment.
 - API startup now runs `alembic upgrade head` before launching Uvicorn, so schema changes and legacy contract migrations are applied automatically.
 - The frontend keeps `node_modules` in a Docker volume so the bind-mounted source tree does not hide Vite and other installed dependencies.
 - The frontend startup script now hashes `package-lock.json` and refreshes the Dockerized dependency volume automatically when the lockfile changes, which helps keep image/runtime dependencies isolated from host `node_modules`.

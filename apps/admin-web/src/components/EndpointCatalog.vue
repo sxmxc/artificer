@@ -54,12 +54,12 @@ const paginatedEndpoints = computed(() => {
 });
 const pageSummary = computed(() => {
   if (!filteredEndpoints.value.length) {
-    return "No endpoints in the current result set";
+    return "No routes in the current result set";
   }
 
   const start = (currentPage.value - 1) * ITEMS_PER_PAGE + 1;
   const end = Math.min(start + ITEMS_PER_PAGE - 1, filteredEndpoints.value.length);
-  return `Showing ${start}-${end} of ${filteredEndpoints.value.length} endpoints`;
+  return `Showing ${start}-${end} of ${filteredEndpoints.value.length} routes`;
 });
 
 watch([search, statusFilter, methodFilter], () => {
@@ -102,8 +102,8 @@ watch(
         </v-avatar>
       </template>
 
-      <v-card-title>Endpoint catalog</v-card-title>
-      <v-card-subtitle>Search, filter, and jump between live mock routes.</v-card-subtitle>
+      <v-card-title>Routes</v-card-title>
+      <v-card-subtitle>Search, filter, and jump between live routes.</v-card-subtitle>
 
       <template #append>
         <div class="d-flex ga-2">
@@ -123,6 +123,7 @@ watch(
     <v-card-text class="catalog-card-body d-flex flex-column ga-4">
       <v-text-field
         v-model="search"
+        class="catalog-search"
         hide-details
         placeholder="Search by name, path, method, or category"
         prepend-inner-icon="mdi-magnify"
@@ -166,7 +167,7 @@ watch(
         />
 
         <v-alert v-else-if="!filteredEndpoints.length" border="start" color="info" variant="tonal">
-          No endpoints match the current filters.
+          No routes match the current filters.
         </v-alert>
 
         <v-list v-else class="catalog-list" rounded="xl">
@@ -194,7 +195,7 @@ watch(
               <div class="catalog-item-actions">
                 <v-chip
                   class="catalog-status-chip"
-                  :color="endpoint.enabled ? 'accent' : 'surface-variant'"
+                  :color="endpoint.enabled ? 'accent' : 'error'"
                   density="compact"
                   label
                   size="small"
@@ -204,9 +205,9 @@ watch(
                 </v-chip>
                 <v-btn
                   class="catalog-duplicate-btn"
-                  aria-label="Duplicate endpoint"
+                  aria-label="Duplicate route"
                   color="surface-variant"
-                  density="comfortable"
+                  density="compact"
                   icon="mdi-content-copy"
                   size="small"
                   variant="tonal"
@@ -241,6 +242,10 @@ watch(
 .catalog-card-body {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.catalog-search {
+  flex: 0 0 auto;
 }
 
 .catalog-scroll-region {

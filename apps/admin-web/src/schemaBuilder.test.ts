@@ -1,5 +1,6 @@
 import {
   addNodeToContainer,
+  applyPathParameter,
   createNode,
   createRootNode,
   defaultGeneratorForType,
@@ -69,6 +70,15 @@ describe("schemaBuilder utilities", () => {
     expect(node.maxLength).toBe(recommendedMaxLengthForValueType("long_text"));
   });
 
+  it("infers account and system-oriented generators from common field names", () => {
+    expect(defaultGeneratorForType("string", "username")).toBe("username");
+    expect(defaultGeneratorForType("string", "password")).toBe("password");
+    expect(defaultGeneratorForType("string", "shortcutKey")).toBe("keyboard_key");
+    expect(defaultGeneratorForType("string", "action")).toBe("verb");
+    expect(defaultGeneratorForType("string", "fileName")).toBe("file_name");
+    expect(defaultGeneratorForType("string", "contentType")).toBe("mime_type");
+  });
+
   it("upgrades legacy text generators on quote-like schemas inside the builder", () => {
     const tree = schemaToTree(
       {
@@ -88,5 +98,33 @@ describe("schemaBuilder utilities", () => {
 
     expect(tree.children[0]?.generator).toBe("long_text");
     expect(tree.children[0]?.maxLength).toBe(recommendedMaxLengthForValueType("long_text"));
+  });
+
+  it("round-trips response fields linked to route path parameters", () => {
+    let tree = createRootNode("response");
+    tree = addNodeToContainer(tree, tree.id, "string", "response");
+    tree = updateNode(tree, tree.children[0].id, (node) => ({ ...node, name: "userId" }));
+    tree = applyPathParameter(tree, tree.children[0].id, "userId", "response");
+
+    const schema = treeToSchema(tree, "response");
+    expect(schema).toMatchObject({
+      properties: {
+        userId: {
+          type: "string",
+          "x-mock": {
+            mode: "generate",
+            type: "path_parameter",
+            generator: "path_parameter",
+            parameter: "userId",
+            options: {
+              parameter: "userId",
+            },
+          },
+        },
+      },
+    });
+
+    const roundTripped = schemaToTree(schema, "response");
+    expect(roundTripped.children[0]?.parameterSource).toBe("userId");
   });
 });

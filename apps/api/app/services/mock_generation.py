@@ -14,29 +14,92 @@ from app.services.schema_contract import normalize_schema_for_builder
 
 DEFAULT_MAX_ITEMS = 3
 MOCKING_TEXT_LINES = [
-    "mock payload approved by the bird council and absolutely full of itself",
-    "another fabricated payload just strutted into the room like it owns staging",
-    "this value is fake, polished, and refusing to apologize for it",
-    "certified believable enough for demos and just smug enough for QA",
-    "side-eye calibrated, overconfident, and technically valid JSON",
-    "this response rolled up late, looked amazing, and still passed type checks",
+    "mock payload delivered on time and with none of the warmth you were hoping for",
+    "generated response approved by the schema and disappointed in your staging habits",
+    "sample data polished just enough to fool a demo and roast a weak integration",
+    "contract-safe mock output with the bedside manner of a failing health check",
+    "schema-compliant response data returned with smug confidence and zero reassurance",
+    "repeatable payload for tests, demos, and the next brave claim that it worked locally",
 ]
-MOCKING_FIRST_NAMES = ["Moxie", "Echo", "Piper", "Nova", "Sage", "Jett", "Vex"]
-MOCKING_LAST_NAMES = ["Mockwell", "Sideeye", "Payload", "Feather", "Byte", "Chirp", "Snark"]
+MOCKING_FIRST_NAMES = ["Blair", "Jordan", "Nova", "Parker", "Quinn", "Riley", "Sage"]
+MOCKING_LAST_NAMES = ["Bennett", "Dryden", "Kestrel", "Mercer", "Reyes", "Sharpe", "Vale"]
 MOCKING_COMPANIES = [
-    "Mockingbird Labs",
-    "Side-Eye Systems",
-    "Featherweight API Co.",
-    "Payload Theatre",
-    "Too Real To Ship LLC",
+    "Deadline Theater",
+    "Hard Reset Works",
+    "Passive Aggressive Systems",
+    "Probably Fine Labs",
+    "Unsolicited Advice Group",
 ]
-MOCKING_CITIES = ["Snarkspur", "Payload Point", "Feather Falls", "Sidetone City", "Mock Harbor"]
-MOCKING_STATES = ["Debug State", "Mockshire", "QA Plains", "Payload Province", "Side-Eye Territory"]
-MOCKING_COUNTRIES = ["The United States of Placeholder", "Mockland", "Payload Republic", "The Federated States of Ship It"]
-MOCKING_STREETS = ["404 Feather Lane", "13 Side-Eye Street", "42 Placeholder Plaza", "418 Teapot Terrace", "7 Hotfix Court"]
-MOCKING_SLUG_PARTS = ["mock", "chirp", "payload", "side-eye", "feather", "stunt", "snark", "placeholder"]
+MOCKING_CITIES = ["Cedar Falls", "Harbor Point", "Summit Ridge", "Northfield", "Maple Grove"]
+MOCKING_STATES = ["California", "Colorado", "New York", "Texas", "Washington"]
+MOCKING_COUNTRIES = ["United States", "Canada", "United Kingdom", "Germany", "Australia"]
+MOCKING_STREETS = ["125 Market Street", "42 Harbor Avenue", "18 Cedar Lane", "500 Summit Road", "77 Lakeview Drive"]
+MOCKING_SLUG_PARTS = ["audit", "bird", "mock", "payload", "queue", "schema", "snark", "staging"]
 MOCKING_PRICE_POINTS = [13.37, 42.42, 88.8, 101.01, 404.04]
 MOCKING_INTEGERS = [7, 13, 42, 64, 101, 404, 418, 9001]
+MOCKING_KEYBOARD_KEYS = [
+    "Enter",
+    "Escape",
+    "Tab",
+    "Space",
+    "Backspace",
+    "Delete",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Shift",
+    "Control",
+    "Alt",
+    "Meta",
+    "F1",
+    "F5",
+    "F12",
+    "A",
+    "C",
+    "K",
+    "/",
+]
+MOCKING_SYSTEM_VERBS = [
+    "Start",
+    "Stop",
+    "Restart",
+    "Shutdown",
+    "Halt",
+    "Pause",
+    "Resume",
+    "Retry",
+    "Cancel",
+    "Enable",
+    "Disable",
+    "Start Job",
+    "Restart Job",
+    "Cancel Job",
+    "Stop Job",
+    "Archive",
+    "Restore",
+]
+MOCKING_FILE_STEMS = [
+    "backup",
+    "catalog-export",
+    "job-output",
+    "payload-sample",
+    "route-config",
+    "session-log",
+    "user-report",
+]
+MOCKING_FILE_EXTENSIONS = ["txt", "json", "csv", "log", "yaml", "pdf", "png"]
+MOCKING_MIME_TYPES = [
+    "application/json",
+    "application/pdf",
+    "application/xml",
+    "application/zip",
+    "image/jpeg",
+    "image/png",
+    "text/csv",
+    "text/plain",
+]
+BCRYPT_ALPHABET = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 MOCK_VALUE_TYPE_ALIASES = {
     "id": "uuid",
     "guid": "uuid",
@@ -45,6 +108,14 @@ MOCK_VALUE_TYPE_ALIASES = {
     "full_name": "full_name",
     "fullname": "full_name",
     "longtext": "long_text",
+    "keyboard": "keyboard_key",
+    "keycap": "keyboard_key",
+    "hotkey": "keyboard_key",
+    "filename": "file_name",
+    "mime": "mime_type",
+    "contenttype": "mime_type",
+    "mediatype": "mime_type",
+    "systemverb": "verb",
 }
 
 
@@ -52,6 +123,7 @@ MOCK_VALUE_TYPE_ALIASES = {
 class GenerationContext:
     rng: random.Random
     faker: Faker
+    path_parameters: dict[str, str]
 
 
 def _stable_seed(identity: str, seed_key: str | None) -> int:
@@ -64,12 +136,16 @@ def _stable_seed(identity: str, seed_key: str | None) -> int:
     return int(digest[:16], 16)
 
 
-def build_generation_context(identity: str, seed_key: str | None) -> GenerationContext:
+def build_generation_context(
+    identity: str,
+    seed_key: str | None,
+    path_parameters: dict[str, str] | None = None,
+) -> GenerationContext:
     seed = _stable_seed(identity, seed_key)
     rng = random.Random(seed)
     faker = Faker()
     faker.seed_instance(rng.randint(0, 2 ** 31 - 1))
-    return GenerationContext(rng=rng, faker=faker)
+    return GenerationContext(rng=rng, faker=faker, path_parameters=dict(path_parameters or {}))
 
 
 def _coerce_int(value: Any, default: int) -> int:
@@ -133,15 +209,78 @@ def _is_mocking_mode(schema: dict[str, Any]) -> bool:
     return _mock_mode(schema) == "mocking"
 
 
+def _linked_path_parameter(schema: dict[str, Any]) -> str | None:
+    if not isinstance(schema, dict):
+        return None
+
+    mock_config = schema.get("x-mock", {}) if isinstance(schema.get("x-mock"), dict) else {}
+    value_type = str(mock_config.get("type") or mock_config.get("generator") or "").strip().lower()
+    if value_type != "path_parameter":
+        return None
+
+    direct_parameter = mock_config.get("parameter")
+    if isinstance(direct_parameter, str) and direct_parameter.strip():
+        return direct_parameter.strip()
+
+    options = mock_config.get("options", {}) if isinstance(mock_config.get("options"), dict) else {}
+    option_parameter = options.get("parameter")
+    if isinstance(option_parameter, str) and option_parameter.strip():
+        return option_parameter.strip()
+
+    return None
+
+
+def _default_path_parameter_value(parameter_name: str) -> str:
+    return f"sample-{parameter_name}"
+
+
+def _coerce_linked_path_parameter(schema: dict[str, Any], raw_value: str) -> Any:
+    schema_type = str(schema.get("type", "string")).lower()
+
+    if schema_type == "integer":
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return 0
+
+    if schema_type == "number":
+        try:
+            return float(raw_value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    if schema_type == "boolean":
+        normalized = raw_value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        return bool(normalized)
+
+    return raw_value
+
+
 def _mocking_slug(context: GenerationContext, words: int = 3) -> str:
     return "-".join(context.rng.choice(MOCKING_SLUG_PARTS) for _ in range(max(words, 1)))
+
+
+def _fake_bcrypt_hash(context: GenerationContext, *, cost: int = 12) -> str:
+    # Bcrypt hashes are 60 chars: "$2b$" + two-digit cost + "$" + 53 chars.
+    body = "".join(context.rng.choice(BCRYPT_ALPHABET) for _ in range(53))
+    return f"$2b${cost:02d}${body}"
+
+
+def _mock_file_name(context: GenerationContext) -> str:
+    stem = context.rng.choice(MOCKING_FILE_STEMS)
+    extension = context.rng.choice(MOCKING_FILE_EXTENSIONS)
+    return f"{stem}.{extension}"
 
 
 def _generate_string(schema: dict[str, Any], context: GenerationContext) -> str:
     generator = _pick_generator(schema) or "text"
     options = schema.get("x-mock", {}).get("options", {})
     min_length = max(_coerce_int(schema.get("minLength"), 0), 0)
-    default_max_length = max(min_length, 280 if generator == "long_text" else 48)
+    default_max_length = max(min_length, 280 if generator == "long_text" else 60 if generator == "password" else 48)
     max_length = max(_coerce_int(schema.get("maxLength"), default_max_length), min_length)
     mocking_mode = _is_mocking_mode(schema)
 
@@ -150,8 +289,20 @@ def _generate_string(schema: dict[str, Any], context: GenerationContext) -> str:
 
     if mocking_mode and generator == "email":
         value = f"{_mocking_slug(context, 2).replace('-', '.')}@mockingbird.test"
+    elif mocking_mode and generator == "username":
+        value = f"{context.rng.choice(MOCKING_FIRST_NAMES).lower()}.{context.rng.choice(MOCKING_LAST_NAMES).lower()}"
+    elif mocking_mode and generator == "password":
+        value = _fake_bcrypt_hash(context)
+    elif generator == "keyboard_key":
+        value = context.rng.choice(MOCKING_KEYBOARD_KEYS)
+    elif generator == "verb":
+        value = context.rng.choice(MOCKING_SYSTEM_VERBS)
     elif mocking_mode and generator == "url":
         value = f"https://mockingbird.test/{_mocking_slug(context, 3)}"
+    elif generator == "file_name":
+        value = _mock_file_name(context)
+    elif generator == "mime_type":
+        value = context.rng.choice(MOCKING_MIME_TYPES)
     elif mocking_mode and generator == "uuid":
         value = str(context.faker.uuid4())
     elif mocking_mode and generator == "slug":
@@ -191,8 +342,20 @@ def _generate_string(schema: dict[str, Any], context: GenerationContext) -> str:
         value = " ".join(context.rng.choice(MOCKING_TEXT_LINES) for _ in range(sentences))
     elif generator == "email":
         value = context.faker.email()
+    elif generator == "username":
+        value = context.faker.user_name()
+    elif generator == "password":
+        value = _fake_bcrypt_hash(context)
+    elif generator == "keyboard_key":
+        value = context.rng.choice(MOCKING_KEYBOARD_KEYS)
+    elif generator == "verb":
+        value = context.rng.choice(MOCKING_SYSTEM_VERBS)
     elif generator == "url":
         value = context.faker.url()
+    elif generator == "file_name":
+        value = _mock_file_name(context)
+    elif generator == "mime_type":
+        value = context.rng.choice(MOCKING_MIME_TYPES)
     elif generator == "uuid":
         value = str(context.faker.uuid4())
     elif generator == "slug":
@@ -315,6 +478,11 @@ def generate_value(schema: Any, context: GenerationContext) -> Any:
     if not isinstance(schema, dict):
         return deepcopy(schema)
 
+    linked_parameter = _linked_path_parameter(schema)
+    if linked_parameter:
+        raw_value = context.path_parameters.get(linked_parameter, _default_path_parameter_value(linked_parameter))
+        return _coerce_linked_path_parameter(schema, raw_value)
+
     mock_config = schema.get("x-mock", {}) or {}
     if mock_config.get("mode") == "fixed" and "value" in mock_config:
         return deepcopy(mock_config["value"])
@@ -342,7 +510,13 @@ def generate_value(schema: Any, context: GenerationContext) -> Any:
     return _generate_string(schema, context)
 
 
-def preview_from_schema(response_schema: dict[str, Any] | None, *, seed_key: str | None, identity: str) -> Any:
-    context = build_generation_context(identity, seed_key)
+def preview_from_schema(
+    response_schema: dict[str, Any] | None,
+    *,
+    identity: str,
+    path_parameters: dict[str, str] | None = None,
+    seed_key: str | None,
+) -> Any:
+    context = build_generation_context(identity, seed_key, path_parameters=path_parameters)
     normalized_schema = normalize_schema_for_builder(response_schema or {}, property_name="root", include_mock=True)
     return generate_value(normalized_schema, context)

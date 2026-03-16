@@ -77,8 +77,27 @@ const duplicateBanner = computed(() => {
     return null;
   }
 
-  return `Copied settings from ${duplicateSource.value.name}. Review the new name, slug, and path before saving.`;
+  return `Copied settings from ${duplicateSource.value.name}. Review the new name and path before saving.`;
 });
+const availableCategories = computed(() =>
+  Array.from(
+    new Set(
+      endpoints.value
+        .map((endpoint) => endpoint.category?.trim() ?? "")
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right)),
+);
+const availableTags = computed(() =>
+  Array.from(
+    new Set(
+      endpoints.value
+        .flatMap((endpoint) => endpoint.tags)
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right)),
+);
 
 async function fetchEndpoints(): Promise<void> {
   if (!auth.session.value) {
@@ -310,18 +329,17 @@ const activeTitle = computed(() => {
 
           <v-card v-else-if="props.mode === 'browse'" class="workspace-card browse-card">
             <v-card-text class="pa-8">
-              <div class="text-overline text-secondary">Endpoint studio</div>
-              <div class="text-h3 font-weight-bold mt-2">Pick a route from the catalog or start a new one.</div>
+              <div class="text-overline text-secondary">Routes</div>
+              <div class="text-h3 font-weight-bold mt-2">Choose a route or create a new one.</div>
               <div class="text-body-1 text-medium-emphasis mt-4">
-                Settings stay here. Schema design now gets its own full-page workspace so the builder is no longer
-                competing with general form controls.
+                Select a route to edit its details, request and response schema, and live test flow.
               </div>
               <div class="d-flex flex-wrap ga-3 mt-6">
                 <v-btn color="primary" prepend-icon="mdi-plus" @click="router.push({ name: 'endpoints-create' })">
-                  Create endpoint
+                  Create route
                 </v-btn>
                 <v-btn prepend-icon="mdi-refresh" variant="text" @click="fetchEndpoints">
-                  Refresh catalog
+                  Refresh routes
                 </v-btn>
               </div>
             </v-card-text>
@@ -335,7 +353,7 @@ const activeTitle = computed(() => {
               <div class="text-overline text-error">Missing endpoint</div>
               <div class="text-h4 font-weight-bold mt-2">That route is no longer in the catalog.</div>
               <div class="text-body-1 text-medium-emphasis mt-4">
-                Refresh the list, pick another record, or create a fresh endpoint shell.
+                Refresh the list, pick another route, or create a new one.
               </div>
             </v-card-text>
           </v-card>
@@ -347,26 +365,32 @@ const activeTitle = computed(() => {
                   <v-card-text class="d-flex flex-column flex-md-row justify-space-between ga-4">
                     <div>
                       <div class="text-overline text-secondary">
-                        {{ props.mode === "create" ? "New route shell" : "Active record" }}
+                        {{ props.mode === "create" ? "New route" : "Route details" }}
                       </div>
                       <div class="text-h4 font-weight-bold mt-2">{{ activeTitle }}</div>
                       <div class="text-body-1 text-medium-emphasis mt-3">
                         {{
                           props.mode === "create"
-                            ? "Start with identity and behavior. Once the endpoint exists, the schema studio opens on its own page."
+                            ? "Set the path, method, and behavior first."
                             : selectedEndpoint?.path
                         }}
                       </div>
                     </div>
 
                     <div class="d-flex flex-wrap align-start justify-end ga-2">
-                      <v-chip v-if="selectedEndpoint" color="primary" label variant="tonal">
+                      <v-chip v-if="selectedEndpoint" color="primary" label size="small" variant="tonal">
                         {{ selectedEndpoint.method }}
                       </v-chip>
-                      <v-chip v-if="selectedEndpoint" :color="selectedEndpoint.enabled ? 'accent' : 'surface-variant'" label variant="tonal">
+                      <v-chip
+                        v-if="selectedEndpoint"
+                        :color="selectedEndpoint.enabled ? 'accent' : 'error'"
+                        label
+                        size="small"
+                        variant="tonal"
+                      >
                         {{ selectedEndpoint.enabled ? "Live" : "Disabled" }}
                       </v-chip>
-                      <v-chip v-if="selectedEndpoint?.category" color="secondary" label variant="tonal">
+                      <v-chip v-if="selectedEndpoint?.category" color="secondary" label size="small" variant="tonal">
                         {{ selectedEndpoint.category }}
                       </v-chip>
                     </div>
@@ -374,6 +398,8 @@ const activeTitle = computed(() => {
                 </v-card>
 
                 <EndpointSettingsForm
+                  :available-categories="availableCategories"
+                  :available-tags="availableTags"
                   :created-at="selectedEndpoint?.created_at"
                   :draft="draft"
                   :endpoint-id="selectedEndpoint?.id"

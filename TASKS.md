@@ -3,7 +3,6 @@
 This file tracks the work needed to bootstrap and evolve the project.
 
 ## Now
-- [ ] Add broader frontend coverage for schema drag/drop, preview, and auth journeys
 - [ ] Add background refresh or smarter cache invalidation for the admin catalog
 
 ## Next
@@ -73,3 +72,18 @@ This file tracks the work needed to bootstrap and evolve the project.
 - [x] Create and populate the GitHub wiki as a curated user/developer handbook, while keeping repo docs canonical
 - [x] Harden admin auth with managed dashboard users, password rotation, bearer sessions, and reserved private route validation
 - [x] Fix admin-user deletion so historical admin sessions do not block account removal
+- [x] Add broader frontend coverage for schema drag/drop, preview, and auth journeys, and tighten the Schema studio canvas/preview layout so it uses space more efficiently
+- [x] Fix schema-canvas reordering and restyle the builder as a connected pill tree with compact plus-icon insertion targets
+- [x] Give the schema studio a true UI/UX density pass with slimmer high-contrast pills, inline rail anchors, end-of-branch add targets, and a wider desktop canvas
+- [x] Split schema-studio builder tools into node, value-behavior, and value-type palettes so scalar response semantics drop directly onto value lanes
+- [x] Tighten schema-studio tree geometry with smaller canvas pills, aligned branch-end anchors, type-specific node icons, and custom pill drag ghosts
+- [x] Re-center schema-studio copy and array authoring around user tasks by restoring `Live preview`, simplifying the page header, and labeling array edits as `Item shape`
+- [x] Rewrite the admin/public product language around routes, schema, and testing; surface linked route-parameter response values and OpenAPI path parameters
+- [x] Add `Username` and `Password` as semantic string value types in the response builder
+- [x] Make the `Password` response value type emit password-hash strings instead of cleartext-looking secrets
+- [x] Switch the route form tags input to a chip-style tag box, move the admin UI to compact Vuetify density defaults, and make disabled route badges explicitly error-colored
+- [x] Stop the route-catalog search field from vertically stretching on sparse paginated pages
+- [x] Hide route slugs from the admin form and auto-generate backend bookkeeping slugs from route names
+- [x] Restore the public hero warning and sharpen mocking-mode copy so the landing page and generated text feel more like Mockingbird
+- [x] Add syntax-highlighted, scrollable JSON panes with inline copy actions to the schema-studio live preview rail
+- [x] Add a real local production-like Compose mode so a checked-out repo can swap from dev targets to runtime targets

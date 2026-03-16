@@ -6,7 +6,7 @@ Represents a managed mock API endpoint.
 Fields:
 - `id`: UUID
 - `name`: human-friendly label
-- `slug`: machine-friendly identifier (used in admin UI)
+- `slug`: machine-friendly internal identifier used for seed/import/admin bookkeeping, auto-generated from the route name for admin-created routes
 - `method`: HTTP method (GET, POST, etc.)
 - `path`: URI path (e.g., `/api/quotes`)
 - `category`: grouping (e.g., `quotes`, `users`)
@@ -44,7 +44,7 @@ For string identifiers, `format: uuid` is treated as the semantic `id` value typ
 
 Mode behavior:
 - `generate`: type-correct true random values.
-- `mocking`: type-correct values with a more playful Mockingbird tone, such as snarkier text, themed emails, cheekier names, or longer quote/message copy.
+- `mocking`: type-correct values with a sharper Mockingbird tone, such as snarkier text, cheekier slugs/emails, sardonic company names, or longer quote/message copy that can gently roast the consumer.
 - `fixed`: static literal JSON returned exactly as configured.
 
 ## OpenAPI model

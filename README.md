@@ -25,6 +25,32 @@ If `ADMIN_BOOTSTRAP_PASSWORD` is left blank, the API prints a one-time bootstrap
 
 If you access the frontend through a remote host or internal DNS name, add it to `FRONTEND_ALLOWED_HOSTS` in `.env`. When the frontend runs in Docker, keep `FRONTEND_DEV_PROXY_TARGET=http://api:8000`.
 
+## 🧪 Production-Like Local Mode
+
+If you want to run your checked-out repo with the runtime targets instead of the hot-reload dev stack:
+
+```sh
+make up-prod-local
+```
+
+That local production-like mode:
+
+- builds the API `runtime` target, which starts with `start.prod.sh` and runs without `uvicorn --reload`
+- builds the admin `runtime` target, which serves the built SPA through Nginx instead of the Vite dev server
+- keeps the same service names, default Compose project, and Postgres volume so Compose recreates the existing stack in place and you can swap back to `make up` without losing your local catalog data
+
+Stop it with:
+
+```sh
+make down-prod-local
+```
+
+If you want to wipe the local production-like database volume too:
+
+```sh
+make clean-prod-local
+```
+
 ## 🧠 What You Get
 
 - **Dynamic mock API**: endpoints defined in Postgres are served dynamically.
@@ -84,6 +110,11 @@ Those files point at:
 - `ghcr.io/sxmxc/mockingbird-admin-web`
 
 The default `IMAGE_TAG=edge` tracks the latest default-branch publish. For release deployments, prefer an explicit tag such as `IMAGE_TAG=1.2.3`.
+
+If you already have the repo checked out and just want a local runtime smoke test, use:
+
+- `docker-compose.prod-local.yml`
+- `make up-prod-local`
 
 ## 🧩 Next steps
 

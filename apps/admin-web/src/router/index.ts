@@ -39,7 +39,7 @@ export const router = createRouter({
       },
       meta: {
         requiresAuth: true,
-        title: "Endpoint catalog",
+        title: "Routes",
         transitionShell: "endpoint-workspace",
       },
     },
@@ -52,7 +52,7 @@ export const router = createRouter({
       },
       meta: {
         requiresAuth: true,
-        title: "Create endpoint",
+        title: "Create route",
         transitionShell: "endpoint-workspace",
       },
     },
@@ -65,7 +65,7 @@ export const router = createRouter({
       },
       meta: {
         requiresAuth: true,
-        title: "Endpoint settings",
+        title: "Route",
         transitionShell: "endpoint-workspace",
       },
     },
@@ -75,7 +75,7 @@ export const router = createRouter({
       component: SchemaEditorView,
       meta: {
         requiresAuth: true,
-        title: "Schema studio",
+        title: "Schema",
       },
     },
     {
@@ -84,7 +84,7 @@ export const router = createRouter({
       component: EndpointPreviewView,
       meta: {
         requiresAuth: true,
-        title: "Route preview",
+        title: "Test route",
       },
     },
   ],
@@ -119,7 +119,7 @@ router.beforeEach(async (to) => {
 
 router.afterEach((to, from) => {
   if (typeof document !== "undefined") {
-    const pageTitle = typeof to.meta.title === "string" ? to.meta.title : "Mockingbird Studio";
+    const pageTitle = typeof to.meta.title === "string" ? to.meta.title : "Mockingbird Admin";
     document.title = `Mockingbird Admin | ${pageTitle}`;
 
     const nextShell = typeof to.meta.transitionShell === "string" ? to.meta.transitionShell : "";

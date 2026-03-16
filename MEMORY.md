@@ -29,23 +29,46 @@ Provide a Docker-first platform to define and serve configurable mock APIs with 
 - The backend now also exposes a branded Mockingbird landing page at `/` and `/api`, plus a live `/api/reference.json` feed backed directly by the current endpoint catalog.
 - The public landing page now treats the opening viewport as a real full-screen hero, prefers explicit `hero-top.*` and `hero-bottom.*` artwork files from `apps/api/static/landing/`, pins immediately beneath a fixed topbar, and places the headline/copy in a wide translucent overlay band near the top of the art.
 - The public hero now uses separate top and bottom frame assets when available, falling back to the older single tall `hero.*` file only if the split pair is missing, and keeps the desktop copy band much wider so the headline and warning line are less vertically cramped.
+- The public hero once again carries the small `WARNING: The API may sometimes mock back.` callout, and the headline/copy now lean into Mockingbird's dry humor instead of generic sample-data language.
 - The quick reference under the hero now renders as a Bulma-based paginated table with sticky headers, method/category/search filtering, modal example payloads, and a client-persisted light/dark toggle.
 - The public quick reference now stays closer to stock Bulma styling, with a flatter table shell and simpler modal/filter controls so the branded surface feels less custom-overdesigned.
 - The public quick reference now keeps category/status chips legible in both themes, color-codes status badges by HTTP family, and leaves example modals open until the user explicitly dismisses them.
 - The public quick reference now shows generated request payloads alongside generated responses for POST/PUT/PATCH routes, while read-only routes continue to show response-only examples.
 - The public sample-payload modal now lets long JSON strings wrap inside the modal body instead of creating a second inner scrollbar inside the payload `<pre>`.
 - Seed data loads a 15-endpoint catalog, and `make seed` / `make test` work in Docker.
+- The repo now also includes a local production-like Compose path through `docker-compose.prod-local.yml` plus `make up-prod-local`, which builds the local `runtime` targets, serves the admin app through Nginx, drops backend hot reload, and recreates the same local Compose stack in place while reusing the dev database volume.
 - The frontend now runs on Vue + Vuetify, with a dedicated login flow, protected catalog/settings routes, a dedicated schema studio route, light/dark theme toggle, catalog search/filtering, and a Vuetify-first drag-and-drop builder surface.
 - The admin frontend now stores bearer session tokens instead of raw passwords, redirects bootstrap/reset accounts into a mandatory password-rotation screen, and exposes a superuser-only dashboard-user management surface.
 - The admin catalog/settings flow now supports endpoint duplication, opening a prefilled disabled copy with adjusted name/slug/path so teams can branch an existing route without immediately shadowing the live one.
 - The admin endpoint workspace now keeps its shared shell mounted across browse/create/edit route changes, so switching records animates the right-hand content panel instead of fading the whole page.
 - The desktop admin catalog rail now uses a bounded scroll region plus client-side pagination, which keeps long endpoint lists from stretching the workspace or pushing the main editor out of position.
+- The catalog search input now opts out of flex growth, so sparse paginated route pages no longer stretch the search box to fill leftover rail height.
+- The route settings form no longer exposes `slug`; admin create/update now auto-generate a unique internal slug from the route name so seed/import bookkeeping can keep using slugs without making users manage them.
 - The CI Docker smoke test now seeds `.env` from `.env.example` before invoking Compose, so GitHub Actions no longer fails teardown/bootstrap in clean checkouts that do not include a local `.env`.
 - GitHub Actions now runs backend tests, frontend lint/test/build, and a Docker Compose smoke test on `main` pushes and pull requests, while a separate image workflow validates runtime images on PRs and publishes multi-arch `linux/amd64` + `linux/arm64` images to GHCR on `main` and `v*` tags.
 - The repo now includes a `deploy/docker-compose.ghcr.yml` example plus `deploy/.env.ghcr.example` so teams can run the stack from published GHCR images without cloning the full source tree.
 - The seeded device catalog now defaults `deviceId` to UUID-style IDs and constrains `model` to the curated device-model enum list in both the list/detail device schemas.
 - The sign-in screen now uses a simpler single-column studio welcome above the form, with more human-facing copy and less implementation-heavy onboarding text.
 - The schema studio now uses draggable Vuetify chips for palette actions, a left-rail inspector, a dedicated preview rail, response preview regeneration, and a separate public-route preview page.
+- The schema-studio live preview rail now renders both the sample response and JSON Schema tabs as syntax-highlighted JSON panes with internal scrolling and inline copy actions, and the `<pre>` markup is kept whitespace-tight so the previewer does not grow phantom blank lines above the JSON.
+- Linking a response field to a saved route path parameter in the schema studio now preserves the field's existing scalar type and JSON Schema constraints instead of rebuilding it as a string, so response contracts and OpenAPI previews stay stable for integer/number/boolean fields too.
+- The schema-studio Vitest coverage now finds canvas nodes through the row-level `data-node-id` buttons instead of generic text matches, so route-value pills like `deviceId` no longer make frontend CI fail with duplicate-text lookup errors.
+- Mocking-mode string generation now speaks in a sharper, more sarcastic Mockingbird voice with snarkier generic text, companies, and slug fragments while staying deterministic under seeded previews.
+- The schema studio now also combines palette/root-shape controls into a single builder-tools rail card, keeps selected-node context visible above the canvas, folds response seed controls into the preview rail, and lets response authors flip between generated output and live JSON Schema without leaving that rail.
+- The schema studio canvas now renders as a connected pill tree with compact plus-icon insertion anchors, and drag/drop reorder works again by carrying explicit browser drag payloads plus before-sibling row insertion handling.
+- The schema studio now also gives more desktop space to the canvas, uses slimmer higher-contrast builder pills, keeps row insertion anchors inline with each child rail, and exposes explicit end-of-branch anchors for appending to the bottom of an object level.
+- The schema studio builder tools now separate structural node pills from response-only value behavior and value type pills, remove the old armed-tool/root-shape redundancy, and let scalar response nodes accept semantic drops directly on a dedicated value lane.
+- Response value types now drive the primary scalar authoring flow: semantic value drops can coerce the leaf node into a compatible scalar type and infer string formats automatically instead of exposing a separate top-level format control in the canvas mental model.
+- The schema studio canvas now uses smaller key/value pills, type-specific lead icons such as braces for object nodes, aligned branch-end add anchors, and a custom pill-shaped drag ghost so dragging feels like moving a tool instead of a browser screenshot.
+- The schema studio now also restores the `Live preview` label, simplifies the schema-page hero copy down to endpoint-specific context, and labels array edits as `Item shape` in the inspector so arrays stop reading like generic multi-child containers.
+- The admin and public surfaces now use more task-first language around routes, schema, and testing, replacing much of the old `studio`/`rail`/`payload` narration with simpler route-focused labels.
+- Response schema editing now surfaces route-parameter pills derived directly from the saved route path, so scalar response fields can echo live path values while OpenAPI still publishes those placeholders automatically as required path inputs.
+- The response value palette now includes `Username` and `Password` semantic string generators alongside the existing email/URL/name-style types.
+- The `Password` response value type now emits bcrypt-style hash strings in both preview and runtime generation, so demo payloads do not leak cleartext-looking passwords.
+- The route details form now uses a `v-combobox` chip input for tags with clearable chips, instead of a comma-delimited plain text field.
+- The admin UI now defaults its main Vuetify controls to compact density, and disabled route status chips use the error palette instead of low-contrast surface colors.
+- Frontend coverage now exercises schema-studio drag/drop, response-preview auth expiry, and auth session restore/login behavior through dedicated Vitest coverage instead of relying only on the older catalog/tree utility tests.
+- Frontend coverage now also includes a reorder regression for the schema canvas, protecting the new row-anchor insertion flow that moves a node before the targeted sibling.
 - Response nodes now support static, true-random, and mocking-random generation modes, and the seeded quote endpoints use the mocking mode to showcase the product voice.
 - Response nodes now also store an explicit semantic mock value type, so random and mocking generation can stay context-aware for values like IDs, names, first names, emails, prices, and longer quote/message-style strings.
 - Runtime preview generation now normalizes older stored response schemas before sampling, so legacy quote/message fields that were previously saved as plain `text` still produce long-text examples on the public homepage and live mock routes.
@@ -68,17 +91,28 @@ Provide a Docker-first platform to define and serve configurable mock APIs with 
 ## Known Risks
 - Live OpenAPI generation may become slow if not cached.
 - Drag-and-drop schema editing is meaningfully more complex than the old textarea editor, so tree-state regressions are still worth watching closely.
+- The new pill-tree canvas depends on small icon-only insertion anchors, so future UX passes should keep keyboard/accessibility affordances in view while refining drag/drop.
+- Semantic value-type drops can intentionally coerce scalar leaf types to a compatible schema type, so future UX changes should keep those mappings obvious in both the canvas and inspector.
+- The builder now uses custom drag images for pills, so future drag/drop changes should preserve that feel instead of accidentally falling back to the browser's default clipped drag screenshot.
+- Arrays still serialize to one JSON Schema `items` shape, so the editor should keep reinforcing that “one item template” model instead of exposing generic object-style child language around array authoring.
+- Arrays in the schema studio still model one repeated item shape via JSON Schema `items`; the array-level end anchor sets or replaces that shape rather than authoring tuple-style `prefixItems`.
 - The public landing page currently uses lightweight polling for the live quick reference rather than websockets or SSE.
 - The public landing page hero still depends on approved artwork being dropped into `apps/api/static/landing/hero.*`.
 - Admin UI and backend need to stay in sync on model schemas.
 - Fresh installs still need an operator to capture the bootstrap password from `ADMIN_BOOTSTRAP_PASSWORD` or the API startup logs and rotate it promptly.
-- Request schema authoring still targets JSON request bodies only; query/path parameter modeling is a follow-up.
+- Request schema authoring still centers on JSON request bodies; full editable path/query parameter schema modeling is still a follow-up, while response authoring can already link scalar fields back to saved route parameters.
+- Slugs remain part of the backend endpoint model for seeding and bookkeeping, so future imports/scripts should keep treating them as internal identifiers rather than reintroducing them into the user-facing route form.
 - Vitest/jsdom still prints repeated `Could not parse CSS stylesheet` warnings when rendering Vuetify-heavy components, even though the frontend tests pass.
 - Local arm64 validation works through a temporary buildx/QEMU builder, but it is meaningfully slower than native amd64 builds because the admin runtime image has to cross-compile the full Vite bundle.
 
 ## Notes for Next Agent
 - Keep tasks updated in `TASKS.md` as progress is made.
 - Focus next on richer schema-studio coverage, request parameter modeling, and smarter catalog refresh behavior now that endpoint duplication is in place.
+- Browser QA for schema-studio reorder should use the row-level plus anchors for "insert before" moves and the inline plus anchors for "append into container" moves; both paths are now covered by the same drag payload contract.
+- Browser QA for schema-studio append-at-end should use the dashed tail anchors under object branches, while array tail anchors intentionally replace the one repeated item shape instead of adding tuple-array siblings.
+- Browser QA for schema-studio scalar semantics should drag response-only behavior and value-type pills onto the green value lane; drops like `price` may intentionally coerce the leaf node to `number` while also inferring the matching semantic generator/format.
+- Browser QA for request-schema path parameters should use a route with placeholders such as `/api/devices/{deviceId}` and confirm the linked parameter pills appear in both the left toolbox and the request canvas header strip.
+- Local persistent dev databases may no longer accept the bootstrap credential pair from `.env`; after the first init, browser QA should use a current dashboard-user password or a freshly created local admin account instead of assuming `admin/admin123` still works.
 - Compose startup now invokes bind-mounted scripts through `sh`, and Postgres health checks probe `POSTGRES_DB` with password auth.
 - Python helper scripts should be executed with `python -m ...` from `/app` so package imports resolve consistently in Docker.
 - The frontend uses a named `/app/node_modules` volume so bind mounts do not hide installed Vite dependencies.

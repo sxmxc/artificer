@@ -256,11 +256,13 @@ export function deleteEndpoint(endpointId: number, session: AdminSession): Promi
 export function previewResponse(
   responseSchema: JsonObject,
   seedKey: string | null,
+  pathParameters: Record<string, string>,
   session: AdminSession,
 ): Promise<PreviewResponsePayload> {
   return request<PreviewResponsePayload>("/api/admin/endpoints/preview-response", session, {
     method: "POST",
     body: JSON.stringify({
+      path_parameters: pathParameters,
       response_schema: responseSchema,
       seed_key: seedKey,
     }),

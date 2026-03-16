@@ -25,7 +25,7 @@ watch(
   { immediate: true },
 );
 
-const pageTitle = computed(() => (typeof route.meta.title === "string" ? route.meta.title : "Mockingbird Studio"));
+const pageTitle = computed(() => (typeof route.meta.title === "string" ? route.meta.title : "Mockingbird Admin"));
 const pageTransitionKey = computed(() => getPageTransitionKey(route));
 const isPublicRoute = computed(() => route.name === "login");
 
@@ -42,7 +42,7 @@ function goToSecurity(): void {
 }
 
 async function signOut(): Promise<void> {
-  await auth.logout("You signed out of the admin studio.");
+  await auth.logout("You signed out.");
   void router.push({ name: "login" });
 }
 </script>
@@ -79,7 +79,7 @@ async function signOut(): Promise<void> {
               variant="text"
               @click="goToCatalog"
             >
-              Catalog
+              Routes
             </v-btn>
             <v-btn
               :active="route.name === 'security'"

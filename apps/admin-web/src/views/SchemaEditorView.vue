@@ -8,6 +8,7 @@ import { schemaToTree, validateTree } from "../schemaBuilder";
 import type { BuilderScope } from "../schemaBuilder";
 import type { Endpoint, JsonObject } from "../types/endpoints";
 import { describeAdminError, endpointToPayload } from "../utils/endpointDrafts";
+import { extractPathParameters } from "../utils/pathParameters";
 
 const route = useRoute();
 const router = useRouter();
@@ -40,6 +41,7 @@ const isDirty = computed(() => {
     seedKey.value !== (endpoint.value.seed_key ?? "")
   );
 });
+const pathParameters = computed(() => endpoint.value ? extractPathParameters(endpoint.value.path) : []);
 
 watch(
   () => route.query.tab,
@@ -94,7 +96,7 @@ async function loadEndpoint(): Promise<void> {
       return;
     }
 
-    loadError.value = describeAdminError(error, "Unable to load the endpoint schema studio.");
+    loadError.value = describeAdminError(error, "Unable to load the endpoint schema.");
   } finally {
     isLoading.value = false;
   }
@@ -170,12 +172,11 @@ async function saveSchemas(): Promise<void> {
   <div class="schema-editor-page d-flex flex-column ga-4">
     <div class="d-flex flex-column flex-lg-row justify-space-between ga-4">
       <div>
-        <div class="text-overline text-secondary">Dedicated schema studio</div>
-        <div class="text-h3 font-weight-bold mt-2">
-          {{ endpoint?.name || "Loading schema editor" }}
+        <div class="text-h3 font-weight-bold">
+          {{ endpoint?.name || "Loading schema" }}
         </div>
-        <div class="text-body-1 text-medium-emphasis mt-3">
-          The builder now has its own page so the palette, canvas, inspector, and preview each get a proper home.
+        <div v-if="endpoint?.summary" class="text-body-1 text-medium-emphasis mt-3">
+          {{ endpoint.summary }}
         </div>
       </div>
 
@@ -193,7 +194,7 @@ async function saveSchemas(): Promise<void> {
           variant="text"
           @click="router.push({ name: 'endpoint-preview', params: { endpointId: endpoint.id } })"
         >
-          Public preview
+          Test route
         </v-btn>
         <v-chip v-if="isDirty" color="warning" label variant="tonal">
           Unsaved changes
@@ -223,7 +224,7 @@ async function saveSchemas(): Promise<void> {
 
     <v-card v-else-if="!endpoint" class="workspace-card">
       <v-card-text class="pa-8">
-        <div class="text-overline text-error">Schema studio unavailable</div>
+        <div class="text-overline text-error">Schema unavailable</div>
         <div class="text-h4 font-weight-bold mt-2">We could not load that endpoint.</div>
         <div class="text-body-1 text-medium-emphasis mt-4">
           {{ loadError ?? "The endpoint is missing or your session changed while loading the schema editor." }}
@@ -235,14 +236,14 @@ async function saveSchemas(): Promise<void> {
       <v-card class="workspace-card">
         <v-card-text class="d-flex flex-column flex-xl-row justify-space-between ga-4">
           <div class="d-flex flex-wrap ga-2">
-            <v-chip color="primary" label variant="tonal">{{ endpoint.method }}</v-chip>
-            <v-chip :color="endpoint.enabled ? 'accent' : 'surface-variant'" label variant="tonal">
+            <v-chip color="primary" label size="small" variant="tonal">{{ endpoint.method }}</v-chip>
+            <v-chip :color="endpoint.enabled ? 'accent' : 'error'" label size="small" variant="tonal">
               {{ endpoint.enabled ? "Live" : "Disabled" }}
             </v-chip>
-            <v-chip v-if="endpoint.category" color="secondary" label variant="tonal">
+            <v-chip v-if="endpoint.category" color="secondary" label size="small" variant="tonal">
               {{ endpoint.category }}
             </v-chip>
-            <v-chip label variant="outlined">{{ endpoint.path }}</v-chip>
+            <v-chip label size="small" variant="outlined">{{ endpoint.path }}</v-chip>
           </div>
 
           <div class="schema-tab-shell">
@@ -250,29 +251,12 @@ async function saveSchemas(): Promise<void> {
               v-model="tab"
               align-tabs="start"
               color="secondary"
-              density="comfortable"
+              density="compact"
             >
               <v-tab value="request">Request schema</v-tab>
               <v-tab value="response">Response schema</v-tab>
             </v-tabs>
           </div>
-        </v-card-text>
-      </v-card>
-
-      <v-card v-if="tab === 'response'" class="workspace-card">
-        <v-card-item>
-          <v-card-title>Response determinism</v-card-title>
-          <v-card-subtitle>
-            Use a seed key for repeatable preview/output. Leave it blank for fresh mock data every time.
-          </v-card-subtitle>
-        </v-card-item>
-        <v-divider />
-        <v-card-text>
-          <v-text-field
-            v-model="seedKey"
-            label="Seed key"
-            placeholder="Optional deterministic seed"
-          />
         </v-card-text>
       </v-card>
 
@@ -286,8 +270,9 @@ async function saveSchemas(): Promise<void> {
 
         <SchemaEditorWorkspace
           v-else
+          v-model:seed-key="seedKey"
+          :path-parameters="pathParameters"
           :schema="responseSchema"
-          :seed-key="seedKey"
           scope="response"
           @update:schema="responseSchema = $event"
         />

@@ -1,19 +1,19 @@
 # QA Profile
 
-This project supports two primary environments:
+This repo now has two practical local Docker modes:
 
-## Local (default)
-Used during development.
-- `docker compose up` starts Postgres, backend, and frontend.
-- Uses `.env` values.
-- Backend port: `8000`
-- Frontend port: `3000`
-- Public smoke target: `http://localhost:8000` should render the Mockingbird landing page and live quick reference.
-- Admin smoke target: `http://localhost:3000` should render the private Mockingbird admin shell.
+## Local development
+- `make up`
+- Uses [docker-compose.yml](/home/devadmin/projects/mockingbird/docker-compose.yml)
+- Builds the Dockerfiles' `dev` targets
+- API runs with `uvicorn --reload`
+- Admin runs through the Vite dev server
 
-## QA
-A profile intended for a more production-like smoke test.
-- Uses the same compose file but can be run with: `docker compose --profile qa up`.
-- Can include additional checks such as schema validation or mock load tests.
+## Local production-like QA
+- `make up-prod-local`
+- Uses [docker-compose.prod-local.yml](/home/devadmin/projects/mockingbird/docker-compose.prod-local.yml)
+- Builds the Dockerfiles' `runtime` targets from the local checkout
+- API runs through `start.prod.sh`
+- Admin serves the built SPA through Nginx and proxies `/api` to the backend container
 
-> NOTE: The QA profile is a placeholder; add specific QA services (e.g., nginx reverse proxy) once the core platform stabilizes.
+Both modes keep the same service names, default Compose project, and named Postgres volume, so switching modes recreates the same local stack in place instead of spinning up a second database. Use `make down-prod-local` to stop the production-like stack without deleting volumes, or `make clean-prod-local` if you want a fresh DB too.

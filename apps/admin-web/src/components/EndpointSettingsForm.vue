@@ -4,6 +4,8 @@ import { describeSchema } from "../utils/endpointDrafts";
 import type { EndpointDraft } from "../types/endpoints";
 
 const props = defineProps<{
+  availableCategories?: string[];
+  availableTags?: string[];
   createdAt?: string;
   draft: EndpointDraft;
   endpointId?: number;
@@ -32,6 +34,41 @@ const authOptions = [
 
 const requestSummary = computed(() => describeSchema(props.draft.request_schema, "request"));
 const responseSummary = computed(() => describeSchema(props.draft.response_schema, "response"));
+const categoryOptions = computed(() =>
+  Array.from(
+    new Set(
+      [...(props.availableCategories ?? []), props.draft.category]
+        .map((category) => String(category ?? "").trim())
+        .filter(Boolean),
+    ),
+  ),
+);
+const tagValues = computed<string[]>({
+  get: () =>
+    props.draft.tags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+  set: (value) => {
+    const normalized = Array.from(
+      new Set(
+        (value ?? [])
+          .map((tag) => String(tag ?? "").trim())
+          .filter(Boolean),
+      ),
+    );
+    patch({ tags: normalized.join(", ") });
+  },
+});
+const tagOptions = computed(() =>
+  Array.from(
+    new Set(
+      [...(props.availableTags ?? []), ...tagValues.value]
+        .map((tag) => String(tag ?? "").trim())
+        .filter(Boolean),
+    ),
+  ),
+);
 
 function patch(value: Partial<EndpointDraft>): void {
   emit("change", value);
@@ -47,9 +84,9 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
   <v-form class="d-flex flex-column ga-5" @submit.prevent="emit('submit')">
     <v-card class="workspace-card">
       <v-card-item>
-        <v-card-title>{{ isCreating ? "Create an endpoint shell" : draft.name || "Untitled endpoint" }}</v-card-title>
+        <v-card-title>{{ isCreating ? "Create route" : draft.name || "Untitled route" }}</v-card-title>
         <v-card-subtitle>
-          {{ isCreating ? "Start with the route identity and behavior, then move into the dedicated schema studio." : "Settings, behavior, and launch points for the live route." }}
+          {{ isCreating ? "Set the path, method, and behavior first." : "Edit the route details, runtime behavior, and schema." }}
         </v-card-subtitle>
 
         <template #append>
@@ -61,7 +98,7 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
               variant="tonal"
               @click="emit('openSchema')"
             >
-              Schema studio
+              Edit schema
             </v-btn>
             <v-btn
               v-if="!isCreating"
@@ -69,7 +106,7 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
               variant="text"
               @click="emit('preview')"
             >
-              Preview route
+              Test route
             </v-btn>
             <v-btn
               v-if="!isCreating"
@@ -89,7 +126,7 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
               Delete
             </v-btn>
             <v-btn color="primary" :loading="isSaving" prepend-icon="mdi-content-save-outline" type="submit">
-              {{ isCreating ? "Create endpoint" : "Save changes" }}
+              {{ isCreating ? "Create route" : "Save changes" }}
             </v-btn>
           </div>
         </template>
@@ -113,14 +150,6 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
               @update:model-value="patch({ name: String($event ?? '') })"
             />
           </v-col>
-          <v-col cols="12" md="6">
-            <v-text-field
-              :error-messages="errors.slug"
-              label="Slug"
-              :model-value="draft.slug"
-              @update:model-value="patch({ slug: String($event ?? '') })"
-            />
-          </v-col>
           <v-col cols="12" md="4">
             <v-select
               label="Method"
@@ -139,18 +168,27 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
             />
           </v-col>
           <v-col cols="12" md="6">
-            <v-text-field
+            <v-combobox
+              clearable
+              :items="categoryOptions"
               label="Category"
               :model-value="draft.category"
+              placeholder="Select an existing category or type a new one"
               @update:model-value="patch({ category: String($event ?? '') })"
             />
           </v-col>
           <v-col cols="12" md="6">
-            <v-text-field
+            <v-combobox
+              v-model="tagValues"
+              :items="tagOptions"
+              chips
+              clearable
+              closable-chips
+              :delimiters="[',']"
+              hide-selected
               label="Tags"
-              :model-value="draft.tags"
-              placeholder="catalog, widgets, internal"
-              @update:model-value="patch({ tags: String($event ?? '') })"
+              multiple
+              placeholder="Select tags or type a new one"
             />
           </v-col>
           <v-col cols="12">
@@ -186,7 +224,7 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
     <v-card class="workspace-card">
       <v-card-item>
         <v-card-title>Runtime behavior</v-card-title>
-        <v-card-subtitle>Simulation controls that shape public responses and preview behavior.</v-card-subtitle>
+        <v-card-subtitle>Set auth, status, errors, latency, and sample seeding.</v-card-subtitle>
       </v-card-item>
       <v-divider />
       <v-card-text>
@@ -248,7 +286,7 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
               @update:model-value="patch({ seed_key: String($event ?? '') })"
             />
             <div class="text-caption text-medium-emphasis">
-              When set, the backend returns repeatable generated values for this endpoint.
+              Use the same seed to get repeatable generated data.
             </div>
           </v-col>
         </v-row>
@@ -263,10 +301,8 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
           </v-avatar>
         </template>
 
-        <v-card-title>Schema studio</v-card-title>
-        <v-card-subtitle>
-          The request and response builders now live on a dedicated route so the canvas can take over the page.
-        </v-card-subtitle>
+        <v-card-title>Request and response</v-card-title>
+        <v-card-subtitle>Review the current request and response shape.</v-card-subtitle>
       </v-card-item>
 
       <v-divider />
@@ -275,8 +311,8 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
         <v-row>
           <v-col cols="12" md="6">
             <v-sheet class="schema-summary-card" rounded="xl">
-              <div class="text-overline text-medium-emphasis">Request payload</div>
-              <div class="text-h6">Schema builder ready</div>
+              <div class="text-overline text-medium-emphasis">Request body</div>
+              <div class="text-h6">Current schema</div>
               <div class="text-body-2 text-medium-emphasis">{{ requestSummary }}</div>
             </v-sheet>
             <div v-if="errors.request_schema" class="text-caption text-error mt-2">
@@ -285,8 +321,8 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
           </v-col>
           <v-col cols="12" md="6">
             <v-sheet class="schema-summary-card" rounded="xl">
-              <div class="text-overline text-medium-emphasis">Response payload</div>
-              <div class="text-h6">Generator-aware schema</div>
+              <div class="text-overline text-medium-emphasis">Response body</div>
+              <div class="text-h6">Current schema</div>
               <div class="text-body-2 text-medium-emphasis">{{ responseSummary }}</div>
             </v-sheet>
             <div v-if="errors.response_schema" class="text-caption text-error mt-2">
@@ -302,15 +338,15 @@ function numberPatch(field: keyof EndpointDraft, value: string | number | null):
           icon="mdi-arrow-right-thin-circle-outline"
           variant="tonal"
         >
-          Save the endpoint first, then open the schema studio on its dedicated page.
+          Save the route before editing its request and response schema.
         </v-alert>
 
         <div v-else class="d-flex flex-wrap ga-3">
           <v-btn color="secondary" prepend-icon="mdi-shape-outline" variant="tonal" @click="emit('openSchema')">
-            Open schema studio
+            Edit schema
           </v-btn>
           <v-btn prepend-icon="mdi-flask-outline" variant="text" @click="emit('preview')">
-            Preview public route
+            Test route
           </v-btn>
         </div>
       </v-card-text>

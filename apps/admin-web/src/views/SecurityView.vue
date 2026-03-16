@@ -85,7 +85,7 @@ async function loadUsers(): Promise<void> {
       return;
     }
 
-    usersError.value = describeError(error, "Unable to load dashboard users.");
+    usersError.value = describeError(error, "Unable to load admin users.");
   } finally {
     usersLoading.value = false;
   }
@@ -177,14 +177,14 @@ async function submitCreateUser(): Promise<void> {
     createForm.isActive = true;
     createForm.isSuperuser = false;
     createForm.mustChangePassword = true;
-    usersSuccess.value = "Created the new dashboard user.";
+    usersSuccess.value = "Created the new admin user.";
     await loadUsers();
   } catch (error) {
     if (handleExpiredSession(error, "Your admin session expired. Sign in again before creating users.")) {
       return;
     }
 
-    createError.value = describeError(error, "Unable to create the dashboard user.");
+    createError.value = describeError(error, "Unable to create the admin user.");
   } finally {
     createBusy.value = false;
   }
@@ -234,7 +234,7 @@ async function submitUserUpdate(): Promise<void> {
       return;
     }
 
-    editError.value = describeError(error, "Unable to save the dashboard user.");
+    editError.value = describeError(error, "Unable to save the admin user.");
   } finally {
     editBusy.value = false;
   }
@@ -252,7 +252,7 @@ async function removeUser(): Promise<void> {
     return;
   }
 
-  const shouldDelete = window.confirm(`Delete "${targetUser.username}" from the admin dashboard?`);
+  const shouldDelete = window.confirm(`Delete "${targetUser.username}" from admin access?`);
   if (!shouldDelete) {
     return;
   }
@@ -270,7 +270,7 @@ async function removeUser(): Promise<void> {
       return;
     }
 
-    editError.value = describeError(error, "Unable to delete the dashboard user.");
+    editError.value = describeError(error, "Unable to delete the admin user.");
   } finally {
     editBusy.value = false;
   }
@@ -282,9 +282,9 @@ async function removeUser(): Promise<void> {
     <div class="d-flex flex-column flex-lg-row justify-space-between ga-4">
       <div>
         <div class="text-overline text-secondary">Security and access</div>
-        <div class="text-h3 font-weight-bold mt-2">Protect the private side of Mockingbird</div>
+        <div class="text-h3 font-weight-bold mt-2">Security</div>
         <div class="text-body-1 text-medium-emphasis mt-3">
-          Rotate your own password, manage dashboard users, and keep the admin studio separate from the public mock surface.
+          Change your password and manage admin access.
         </div>
       </div>
 
@@ -318,7 +318,7 @@ async function removeUser(): Promise<void> {
             </template>
 
             <v-card-title>Change your password</v-card-title>
-            <v-card-subtitle>Sessions store tokens now, not raw passwords, so password rotation is safer and simpler.</v-card-subtitle>
+            <v-card-subtitle>Use a new password for this account.</v-card-subtitle>
           </v-card-item>
 
           <v-divider />
@@ -377,8 +377,8 @@ async function removeUser(): Promise<void> {
               </v-avatar>
             </template>
 
-            <v-card-title>Dashboard users</v-card-title>
-            <v-card-subtitle>Superusers can create, disable, and reset access for private studio accounts.</v-card-subtitle>
+            <v-card-title>Admin users</v-card-title>
+            <v-card-subtitle>Superusers can create, disable, and reset admin access.</v-card-subtitle>
           </v-card-item>
 
           <v-divider />
@@ -393,7 +393,7 @@ async function removeUser(): Promise<void> {
             </v-alert>
 
             <v-alert v-if="!auth.isSuperuser.value" border="start" color="info" variant="tonal">
-              Your account can manage endpoints, but only superusers can invite or edit dashboard users.
+              Your account can manage routes, but only superusers can manage admin users.
             </v-alert>
 
             <v-alert
@@ -407,7 +407,7 @@ async function removeUser(): Promise<void> {
 
             <template v-else>
               <div class="journey-panel d-flex flex-column ga-4">
-                <div class="text-subtitle-1 font-weight-medium">Add a dashboard user</div>
+                <div class="text-subtitle-1 font-weight-medium">Add an admin user</div>
 
                 <v-text-field
                   v-model="createForm.username"
@@ -452,7 +452,7 @@ async function removeUser(): Promise<void> {
               />
 
               <div v-else class="journey-panel pa-0 overflow-hidden">
-                <v-table density="comfortable">
+                <v-table density="compact">
                   <thead>
                     <tr>
                       <th>User</th>
@@ -467,7 +467,7 @@ async function removeUser(): Promise<void> {
                       <td>
                         <div class="font-weight-medium">{{ user.username }}</div>
                         <div class="text-caption text-medium-emphasis">
-                          {{ user.id === currentUserId ? "Current account" : "Dashboard user" }}
+                          {{ user.id === currentUserId ? "Current account" : "Admin user" }}
                         </div>
                       </td>
                       <td>
@@ -486,7 +486,7 @@ async function removeUser(): Promise<void> {
                         </v-chip>
                       </td>
                       <td class="text-right">
-                        <v-btn density="comfortable" icon="mdi-pencil" variant="text" @click="openEditDialog(user)" />
+                        <v-btn density="compact" icon="mdi-pencil" variant="text" @click="openEditDialog(user)" />
                       </td>
                     </tr>
                   </tbody>
@@ -507,8 +507,8 @@ async function removeUser(): Promise<void> {
             </v-avatar>
           </template>
 
-          <v-card-title>Edit dashboard user</v-card-title>
-          <v-card-subtitle>Update access level, activation state, or issue a reset password.</v-card-subtitle>
+          <v-card-title>Edit admin user</v-card-title>
+          <v-card-subtitle>Update access, status, or reset the password.</v-card-subtitle>
         </v-card-item>
 
         <v-divider />

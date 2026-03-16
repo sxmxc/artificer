@@ -3,6 +3,7 @@ import type { JsonObject, JsonValue } from "./types/endpoints";
 export type BuilderNodeType = "object" | "array" | "string" | "integer" | "number" | "boolean" | "enum";
 export type BuilderScope = "request" | "response";
 export type MockMode = "generate" | "fixed" | "mocking";
+export const PATH_PARAMETER_GENERATOR = "path_parameter";
 
 export interface SchemaBuilderNode {
   children: SchemaBuilderNode[];
@@ -21,12 +22,13 @@ export interface SchemaBuilderNode {
   minimum: number | null;
   mode: MockMode;
   name: string;
+  parameterSource: string | null;
   required: boolean;
   type: BuilderNodeType;
 }
 
 type MutableNode = SchemaBuilderNode;
-type GeneratorOption = { label: string; types: BuilderNodeType[]; value: string };
+export type GeneratorOption = { label: string; types: BuilderNodeType[]; value: string };
 
 const ROOT_ID = "builder-root";
 const DEFAULT_TEXT_LENGTH = 64;
@@ -39,6 +41,14 @@ const VALUE_TYPE_ALIASES: Record<string, string> = {
   fullname: "name",
   float: "number",
   longtext: "long_text",
+  keyboard: "keyboard_key",
+  keycap: "keyboard_key",
+  hotkey: "keyboard_key",
+  filename: "file_name",
+  mime: "mime_type",
+  contenttype: "mime_type",
+  mediatype: "mime_type",
+  systemverb: "verb",
 };
 const STRING_FORMAT_BY_VALUE_TYPE: Record<string, string> = {
   id: "uuid",
@@ -116,6 +126,25 @@ export function recommendedMaxLengthForValueType(valueType: string | null | unde
   return normalizeMockValueType(valueType) === "long_text" ? DEFAULT_LONG_TEXT_LENGTH : DEFAULT_TEXT_LENGTH;
 }
 
+export function valueTypeLabel(valueType: string | null | undefined): string {
+  const normalized = normalizeMockValueType(valueType);
+  if (!normalized) {
+    return "Generic value";
+  }
+
+  return GENERATOR_OPTIONS.find((option) => option.value === normalized)?.label ?? normalized.replace(/_/g, " ");
+}
+
+export function preferredNodeTypeForValueType(valueType: string | null | undefined): BuilderNodeType | null {
+  const normalized = normalizeMockValueType(valueType);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = GENERATOR_OPTIONS.find((option) => option.value === normalized);
+  return match?.types[0] ?? null;
+}
+
 export function defaultGeneratorForType(type: BuilderNodeType, name = "value", format = ""): string | null {
   const normalizedName = name.replace(/[-\s]/g, "_").toLowerCase();
   const normalizedFormat = format.toLowerCase();
@@ -142,6 +171,57 @@ export function defaultGeneratorForType(type: BuilderNodeType, name = "value", f
     }
     if (normalizedFormat === "time") {
       return "time";
+    }
+    if (normalizedName === "username" || normalizedName === "user_name" || normalizedName === "handle") {
+      return "username";
+    }
+    if (normalizedName.includes("password")) {
+      return "password";
+    }
+    if (
+      normalizedName === "keyboard_key"
+      || normalizedName === "keyboardkey"
+      || normalizedName === "shortcut"
+      || normalizedName === "shortcut_key"
+      || normalizedName === "shortcutkey"
+      || normalizedName === "hotkey"
+      || normalizedName === "key_name"
+      || normalizedName === "keyname"
+      || normalizedName === "keycap"
+    ) {
+      return "keyboard_key";
+    }
+    if (
+      normalizedName === "verb"
+      || normalizedName === "action"
+      || normalizedName === "command"
+      || normalizedName === "operation"
+      || normalizedName === "job_action"
+      || normalizedName === "jobaction"
+      || normalizedName === "system_action"
+      || normalizedName === "systemaction"
+    ) {
+      return "verb";
+    }
+    if (
+      normalizedName === "file_name"
+      || normalizedName === "filename"
+      || normalizedName === "document_name"
+      || normalizedName === "documentname"
+      || normalizedName === "attachment_name"
+      || normalizedName === "attachmentname"
+    ) {
+      return "file_name";
+    }
+    if (
+      normalizedName === "mime_type"
+      || normalizedName === "mimetype"
+      || normalizedName === "content_type"
+      || normalizedName === "contenttype"
+      || normalizedName === "media_type"
+      || normalizedName === "mediatype"
+    ) {
+      return "mime_type";
     }
     if (normalizedName.includes("slug")) {
       return "slug";
@@ -213,9 +293,15 @@ export const GENERATOR_OPTIONS: GeneratorOption[] = [
   { value: "text", label: "Text", types: ["string"] },
   { value: "long_text", label: "Long text", types: ["string"] },
   { value: "id", label: "ID / GUID", types: ["string"] },
+  { value: "username", label: "Username", types: ["string"] },
+  { value: "password", label: "Password", types: ["string"] },
+  { value: "keyboard_key", label: "Keyboard key", types: ["string"] },
+  { value: "verb", label: "Verb", types: ["string"] },
   { value: "email", label: "Email", types: ["string"] },
   { value: "url", label: "URL", types: ["string"] },
   { value: "slug", label: "Slug", types: ["string"] },
+  { value: "file_name", label: "File name", types: ["string"] },
+  { value: "mime_type", label: "MIME type", types: ["string"] },
   { value: "date", label: "Date", types: ["string"] },
   { value: "datetime", label: "DateTime", types: ["string"] },
   { value: "time", label: "Time", types: ["string"] },
@@ -277,6 +363,7 @@ export function createNode(
     minimum: overrides.minimum ?? null,
     mode: overrides.mode ?? "generate",
     name: overrides.name ?? defaultName(nextType),
+    parameterSource: overrides.parameterSource ?? null,
     required: overrides.required ?? false,
     type: nextType,
   };
@@ -456,6 +543,102 @@ export function updateNode(
   return nextTree;
 }
 
+export function isScalarNode(node: SchemaBuilderNode): boolean {
+  return node.type !== "object" && node.type !== "array";
+}
+
+export function applyValueType(
+  tree: SchemaBuilderNode,
+  nodeId: string,
+  valueType: string,
+  scope: BuilderScope,
+): SchemaBuilderNode {
+  const normalized = normalizeMockValueType(valueType);
+  if (!normalized) {
+    return tree;
+  }
+
+  return updateNode(tree, nodeId, (node) => {
+    if (!isScalarNode(node)) {
+      return node;
+    }
+
+    const nextType = preferredNodeTypeForValueType(normalized) ?? node.type;
+    const nextMode = scope === "response" && node.mode === "fixed" ? "generate" : node.mode;
+
+    const baseNode =
+      nextType === node.type
+        ? {
+            ...node,
+            enumValues: [...node.enumValues],
+            fixedValue: cloneJsonValue(node.fixedValue),
+            children: [],
+            item: null,
+            parameterSource: null,
+          }
+        : createNode(nextType, scope, {
+            id: node.id,
+            name: node.name,
+            required: node.required,
+            description: node.description,
+            mode: scope === "response" ? nextMode : "generate",
+          });
+
+    if (nextType !== "string") {
+      return {
+        ...baseNode,
+        mode: scope === "response" ? nextMode : baseNode.mode,
+        generator: normalized,
+        format: "",
+        parameterSource: null,
+      };
+    }
+
+    const currentRecommendedLength = recommendedMaxLengthForValueType(baseNode.generator);
+    const nextRecommendedLength = recommendedMaxLengthForValueType(normalized);
+
+    return {
+      ...baseNode,
+      mode: scope === "response" ? nextMode : baseNode.mode,
+      generator: normalized,
+      format: formatForValueType(normalized),
+      parameterSource: null,
+      maxLength:
+        baseNode.maxLength == null
+          ? nextRecommendedLength
+          : baseNode.maxLength === currentRecommendedLength
+            ? nextRecommendedLength
+            : normalized === "long_text" && baseNode.maxLength < nextRecommendedLength
+              ? nextRecommendedLength
+              : baseNode.maxLength,
+    };
+  });
+}
+
+export function applyPathParameter(
+  tree: SchemaBuilderNode,
+  nodeId: string,
+  parameter: string,
+  scope: BuilderScope,
+): SchemaBuilderNode {
+  const trimmedParameter = parameter.trim();
+  if (scope !== "response" || !trimmedParameter) {
+    return tree;
+  }
+
+  return updateNode(tree, nodeId, (node) => {
+    if (!isScalarNode(node)) {
+      return node;
+    }
+
+    return {
+      ...node,
+      mode: "generate",
+      parameterSource: trimmedParameter,
+    };
+  });
+}
+
 export function resetNodeType(tree: SchemaBuilderNode, nodeId: string, nextType: BuilderNodeType, scope: BuilderScope): SchemaBuilderNode {
   return updateNode(tree, nodeId, (node) => {
     const rebuilt = createNode(nextType, scope, {
@@ -497,6 +680,26 @@ export function insertNewNodeAfterSibling(
     name: buildUniqueName(siblingLocation.parent, defaultName(type)),
   });
   siblingLocation.parent.children.splice(siblingIndex + 1, 0, nextNode);
+  return nextTree;
+}
+
+export function insertNewNodeBeforeSibling(
+  tree: SchemaBuilderNode,
+  siblingId: string,
+  type: BuilderNodeType,
+  scope: BuilderScope,
+): SchemaBuilderNode {
+  const nextTree = cloneTree(tree);
+  const siblingLocation = findMutableNode(nextTree, siblingId);
+  if (!siblingLocation || !siblingLocation.parent || siblingLocation.parent.type !== "object") {
+    return tree;
+  }
+
+  const siblingIndex = siblingLocation.parent.children.findIndex((child) => child.id === siblingId);
+  const nextNode = createNode(type, scope, {
+    name: buildUniqueName(siblingLocation.parent, defaultName(type)),
+  });
+  siblingLocation.parent.children.splice(siblingIndex, 0, nextNode);
   return nextTree;
 }
 
@@ -588,6 +791,35 @@ export function moveNodeAfterSibling(tree: SchemaBuilderNode, nodeId: string, si
   return nextTree;
 }
 
+export function moveNodeBeforeSibling(tree: SchemaBuilderNode, nodeId: string, siblingId: string): SchemaBuilderNode {
+  if (nodeId === ROOT_ID || nodeId === siblingId || isAncestor(tree, nodeId, siblingId)) {
+    return tree;
+  }
+
+  const nextTree = cloneTree(tree);
+  const siblingLocation = findMutableNode(nextTree, siblingId);
+  if (!siblingLocation || !siblingLocation.parent || siblingLocation.parent.type !== "object") {
+    return tree;
+  }
+
+  const removed = removeNodeInPlace(nextTree, nodeId);
+  if (!removed) {
+    return tree;
+  }
+
+  const refreshedSiblingLocation = findMutableNode(nextTree, siblingId);
+  if (!refreshedSiblingLocation || !refreshedSiblingLocation.parent || refreshedSiblingLocation.parent.type !== "object") {
+    return tree;
+  }
+
+  const siblingIndex = refreshedSiblingLocation.parent.children.findIndex((child) => child.id === siblingId);
+  refreshedSiblingLocation.parent.children.splice(siblingIndex, 0, {
+    ...removed,
+    name: buildUniqueName(refreshedSiblingLocation.parent, removed.name, removed.id),
+  });
+  return nextTree;
+}
+
 function normalizeFixedValue(type: BuilderNodeType, value: unknown): JsonValue {
   if (type === "object" || type === "array") {
     if (value !== null && typeof value === "object") {
@@ -648,18 +880,32 @@ export function schemaToTree(schema: JsonObject | null | undefined, scope: Build
     const mockConfig = scope === "response" && typeof rawSchema["x-mock"] === "object" && rawSchema["x-mock"] !== null
       ? (rawSchema["x-mock"] as JsonObject)
       : null;
+    const mockOptions = mockConfig?.options as JsonObject | undefined;
+    const rawParameterSource =
+      typeof mockConfig?.parameter === "string"
+        ? mockConfig.parameter
+        : typeof mockOptions?.parameter === "string"
+          ? mockOptions.parameter
+          : null;
+    const parameterSource = scope === "response"
+      && (mockConfig?.type === PATH_PARAMETER_GENERATOR || mockConfig?.generator === PATH_PARAMETER_GENERATOR)
+      && rawParameterSource
+        ? rawParameterSource
+        : null;
     const format = typeof rawSchema.format === "string" ? rawSchema.format : "";
     const generator = scope === "response"
-      ? resolveGenerator(
-          type,
-          name,
-          format,
-          typeof mockConfig?.type === "string"
-            ? mockConfig.type
-            : typeof mockConfig?.generator === "string"
-              ? mockConfig.generator
-              : null,
-        )
+      ? parameterSource
+        ? defaultGeneratorForType(type, name, format)
+        : resolveGenerator(
+            type,
+            name,
+            format,
+            typeof mockConfig?.type === "string"
+              ? mockConfig.type
+              : typeof mockConfig?.generator === "string"
+                ? mockConfig.generator
+                : null,
+          )
       : null;
 
     const node = createNode(type, scope, {
@@ -685,6 +931,7 @@ export function schemaToTree(schema: JsonObject | null | undefined, scope: Build
             ? "mocking"
             : "generate",
       name,
+      parameterSource,
       required,
       enumValues: Array.isArray(rawSchema.enum) ? rawSchema.enum.map(String) : [],
       fixedValue:
@@ -756,7 +1003,7 @@ export function treeToSchema(tree: SchemaBuilderNode, scope: BuilderScope): Json
         base.enum = node.enumValues.filter(Boolean);
       }
       if (node.type === "string") {
-        const resolvedFormat = node.format || formatForValueType(node.generator);
+        const resolvedFormat = node.parameterSource ? node.format : node.format || formatForValueType(node.generator);
         if (resolvedFormat) {
           base.format = resolvedFormat;
         }
@@ -776,8 +1023,16 @@ export function treeToSchema(tree: SchemaBuilderNode, scope: BuilderScope): Json
     }
 
     if (scope === "response") {
-      const mockConfig: JsonObject = { mode: node.mode, options: {} };
-      if (node.mode === "fixed") {
+      const mockConfig: JsonObject = {
+        mode: node.parameterSource ? "generate" : node.mode,
+        options: {},
+      };
+      if (node.parameterSource) {
+        mockConfig.type = PATH_PARAMETER_GENERATOR;
+        mockConfig.generator = PATH_PARAMETER_GENERATOR;
+        mockConfig.parameter = node.parameterSource;
+        mockConfig.options = { parameter: node.parameterSource };
+      } else if (node.mode === "fixed") {
         mockConfig.value = cloneJsonValue(node.fixedValue);
       } else if (node.generator) {
         mockConfig.type = node.generator;

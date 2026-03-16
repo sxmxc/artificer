@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.crud import (
     create_endpoint,
@@ -11,6 +13,7 @@ from app.crud import (
     update_endpoint,
 )
 from app.db import get_session
+from app.models import EndpointDefinition
 from app.schemas import (
     AdminLoginRequest,
     AdminLoginResponse,
@@ -52,6 +55,7 @@ from app.services.schema_contract import normalize_schema_for_builder
 
 
 router = APIRouter()
+SLUG_SEPARATOR_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
 def _normalize_request_schema(schema: dict | None) -> dict:
@@ -90,6 +94,33 @@ def _normalize_endpoint_fields(updates: dict) -> dict:
         normalized_updates["response_schema"] = _normalize_response_schema(normalized_updates["response_schema"])
 
     return normalized_updates
+
+
+def _slugify_value(raw_value: str) -> str:
+    lowered = raw_value.strip().lower()
+    normalized = SLUG_SEPARATOR_PATTERN.sub("-", lowered).strip("-")
+    return normalized or "endpoint"
+
+
+def _build_unique_slug(
+    session: Session,
+    *,
+    name: str,
+    requested_slug: str | None = None,
+    exclude_endpoint_id: int | None = None,
+) -> str:
+    base_slug = _slugify_value(requested_slug or name)
+    candidate = base_slug
+    suffix = 2
+
+    while True:
+        statement = select(EndpointDefinition).where(EndpointDefinition.slug == candidate)
+        existing = session.execute(statement).scalars().first()
+        if not existing or existing.id == exclude_endpoint_id:
+            return candidate
+
+        candidate = f"{base_slug}-{suffix}"
+        suffix += 1
 
 
 @router.post("/auth/login", response_model=AdminLoginResponse)
@@ -275,8 +306,11 @@ def create_new_endpoint(
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_admin_access),
 ) -> EndpointRead:
-    normalized_fields = _normalize_endpoint_fields(
-        endpoint_in.model_dump()
+    normalized_fields = _normalize_endpoint_fields(endpoint_in.model_dump())
+    normalized_fields["slug"] = _build_unique_slug(
+        session,
+        name=str(normalized_fields.get("name") or endpoint_in.name),
+        requested_slug=normalized_fields.get("slug"),
     )
     payload = EndpointCreate(**normalized_fields)
     return create_endpoint(session, payload)
@@ -294,6 +328,13 @@ def update_existing_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found")
 
     updates = _normalize_endpoint_fields(endpoint_in.model_dump(exclude_unset=True))
+    if "name" in updates or "slug" in updates:
+        updates["slug"] = _build_unique_slug(
+            session,
+            name=str(updates.get("name") or endpoint.name),
+            requested_slug=updates.get("slug"),
+            exclude_endpoint_id=endpoint.id,
+        )
     return update_endpoint(session, endpoint, EndpointUpdate(**updates))
 
 
@@ -318,6 +359,7 @@ def preview_response(
     return PreviewResponse(
         preview=preview_from_schema(
             _normalize_response_schema(payload.response_schema),
+            path_parameters=payload.path_parameters,
             seed_key=payload.seed_key,
             identity="preview",
         ),

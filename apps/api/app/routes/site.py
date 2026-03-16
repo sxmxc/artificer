@@ -515,13 +515,28 @@ LANDING_TEMPLATE = """
         font-size: 1.1rem;
         line-height: 1.7;
         color: var(--muted);
-        margin: 0 0 20px;
+        margin: 0 0 18px;
       }
 
       .hero-warning {
-        display: block;
-        margin-top: 0.8rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 0 0 20px;
+        padding: 0.65rem 0.9rem;
+        border-radius: 999px;
+        border: 1px solid rgba(199, 111, 53, 0.25);
+        background: rgba(199, 111, 53, 0.12);
+        color: var(--secondary);
+        font-size: 0.92rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
         white-space: nowrap;
+      }
+
+      .hero-warning-icon {
+        font-size: 0.95rem;
+        line-height: 1;
       }
 
       .hero-stat-row,
@@ -1199,7 +1214,7 @@ LANDING_TEMPLATE = """
                     <button class="button is-light nav-link theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
                       Dark mode
                     </button>
-                    <a class="button is-light nav-link" href="#reference">Live quick reference</a>
+                    <a class="button is-light nav-link" href="#reference">Routes</a>
                     <a class="button is-light nav-link" href="/openapi.json">OpenAPI JSON</a>
                     <a class="button is-link hero-link" href="/docs">API docs</a>
                   </div>
@@ -1223,14 +1238,17 @@ LANDING_TEMPLATE = """
               <div class="hero-copy">
                 <div class="hero-copy-inner">
                   <div class="hero-copy-lede">
-                    <div class="eyebrow">Public mock API</div>
-                    <h1 class="hero-title">Mock APIs with a little <span class="hero-title-accent">bite.</span></h1>
+                    <div class="eyebrow">Mock API</div>
+                    <h1 class="hero-title">Mock routes with realistic <span class="hero-title-accent">data and no bedside manner.</span></h1>
                   </div>
 
                   <div class="hero-copy-body">
                     <p class="hero-description">
-                      Mockingbird provides mock API endpoints that return realistic randomized data so you can test integrations without waiting on a real backend.
-                      <span class="brand-kicker hero-warning">WARNING: Some responses might even mock you back.</span>
+                      Browse live routes, inspect example payloads, and pull the current OpenAPI spec from one place.
+                    </p>
+                    <p class="hero-warning">
+                      <span class="hero-warning-icon" aria-hidden="true">&#9888;</span>
+                      <span>WARNING: The API may sometimes mock back.</span>
                     </p>
 
                     <div class="hero-stat-row">
@@ -1238,8 +1256,8 @@ LANDING_TEMPLATE = """
                     </div>
 
                     <div class="hero-actions">
-                      <a class="hero-link" href="#reference">Browse the live endpoints</a>
-                      <a class="nav-link" href="/openapi.json">Read the spec</a>
+                      <a class="hero-link" href="#reference">Browse routes</a>
+                      <a class="nav-link" href="/openapi.json">OpenAPI JSON</a>
                     </div>
                   </div>
                 </div>
@@ -1252,10 +1270,9 @@ LANDING_TEMPLATE = """
           <div class="reference-header">
             <div>
               <div class="eyebrow">Quick reference</div>
-              <h2 class="section-title">Everything currently live.</h2>
+              <h2 class="section-title">Routes currently live.</h2>
               <p class="section-description">
-                This catalog is pulled from the active endpoint definitions and refreshed every __REFRESH_SECONDS__
-                seconds, so the homepage reflects what the public API is serving right now.
+                This table reflects the active routes and refreshes every __REFRESH_SECONDS__ seconds.
               </p>
             </div>
 
@@ -1348,17 +1365,17 @@ LANDING_TEMPLATE = """
       <div class="modal-card" role="dialog" aria-modal="true">
         <header class="modal-card-head">
           <div class="modal-card-head-content">
-            <div class="eyebrow">Sample payload</div>
-            <p class="modal-card-title" id="payload-popover-title">Mock payload</p>
+            <div class="eyebrow">Sample JSON</div>
+            <p class="modal-card-title" id="payload-popover-title">Route sample</p>
             <div class="payload-meta" id="payload-popover-meta"></div>
           </div>
-          <button class="delete" id="payload-popover-close" type="button" aria-label="Close sample payload"></button>
+          <button class="delete" id="payload-popover-close" type="button" aria-label="Close sample JSON"></button>
         </header>
         <section class="modal-card-body">
           <div class="sample-sections">
             <section class="sample-section" id="payload-popover-request-section" hidden>
               <div class="sample-section-header">
-                <div class="sample-section-title">Request payload</div>
+                <div class="sample-section-title">Request JSON</div>
                 <div class="sample-section-meta" id="payload-popover-request-meta"></div>
               </div>
               <pre class="sample-block" id="payload-popover-request-body"></pre>
@@ -1681,7 +1698,7 @@ LANDING_TEMPLATE = """
         const statusCode = String(endpoint?.success_status_code || 200);
         const requestVisible = hasRequestExample(endpoint);
 
-        payloadTitle.textContent = endpoint?.name || "Mock payload";
+        payloadTitle.textContent = endpoint?.name || "Route sample";
         payloadMeta.textContent = `${method} ${examplePath} • ${endpointCategory(endpoint)}`;
         payloadRequestSection.hidden = !requestVisible;
         payloadRequestMeta.textContent = requestVisible ? "Send this JSON body" : "";

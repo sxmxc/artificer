@@ -45,7 +45,6 @@ describe("createDuplicateDraft", () => {
       createEndpoint({
         id: 2,
         name: "List devices copy",
-        slug: "list-devices-copy",
         path: "/api/devices-copy/{deviceId}",
       }),
     ];
@@ -53,7 +52,6 @@ describe("createDuplicateDraft", () => {
     const duplicate = createDuplicateDraft(source, existingEndpoints);
 
     expect(duplicate.name).toBe("List devices copy 2");
-    expect(duplicate.slug).toBe("list-devices-copy-2");
     expect(duplicate.path).toBe("/api/devices-copy-2/{deviceId}");
     expect(duplicate.enabled).toBe(false);
     expect(duplicate.method).toBe(source.method);

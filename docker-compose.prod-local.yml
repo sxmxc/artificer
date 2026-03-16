@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mockadmin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mockpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-mockapi}
+      POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "PGPASSWORD=${POSTGRES_PASSWORD:-mockpassword} pg_isready -h localhost -U ${POSTGRES_USER:-mockadmin} -d ${POSTGRES_DB:-mockapi}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        APP_VERSION: ${APP_VERSION:-local-runtime}
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${API_PUBLISHED_PORT:-8000}:${API_PORT:-8000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  admin-web:
+    build:
+      context: ./apps/admin-web
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        APP_VERSION: ${APP_VERSION:-local-runtime}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:${API_PORT:-8000}
+    ports:
+      - "${ADMIN_WEB_PUBLISHED_PORT:-3000}:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+    name: mockingbird_api_pgdata

@@ -60,19 +60,58 @@ export const vuetify = createVuetify({
       rounded: "xl",
     },
     VBtn: {
+      density: "compact",
       rounded: "pill",
     },
+    VChip: {
+      density: "compact",
+    },
     VTextField: {
-      density: "comfortable",
+      density: "compact",
       variant: "outlined",
     },
     VTextarea: {
-      density: "comfortable",
+      density: "compact",
       variant: "outlined",
     },
     VSelect: {
-      density: "comfortable",
+      density: "compact",
       variant: "outlined",
+    },
+    VCombobox: {
+      density: "compact",
+      variant: "outlined",
+    },
+    VAutocomplete: {
+      density: "compact",
+      variant: "outlined",
+    },
+    VSwitch: {
+      density: "compact",
+    },
+    VTabs: {
+      density: "compact",
+    },
+    VTab: {
+      density: "compact",
+    },
+    VListItem: {
+      density: "compact",
+    },
+    VPagination: {
+      density: "compact",
+    },
+    VTable: {
+      density: "compact",
+    },
+    VBtnGroup: {
+      density: "compact",
+    },
+    VChipGroup: {
+      density: "compact",
+    },
+    VList: {
+      density: "compact",
     },
   },
 });

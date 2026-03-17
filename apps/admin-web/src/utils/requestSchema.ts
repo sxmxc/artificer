@@ -125,6 +125,20 @@ function fitStringPreviewValue(value: string, definition: RequestParameterDefini
   return nextValue;
 }
 
+export function parseOptionalNumberInput(rawValue: unknown): number | null {
+  if (rawValue === null || rawValue === undefined) {
+    return null;
+  }
+
+  const normalized = String(rawValue).trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function createEmptyRequestParameterSchema(): JsonObject {
   return cloneJsonValue(EMPTY_PARAMETER_SCHEMA);
 }

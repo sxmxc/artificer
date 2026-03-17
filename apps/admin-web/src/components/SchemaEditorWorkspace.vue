@@ -10,6 +10,7 @@ import { highlightJson } from "../utils/jsonHighlight";
 import {
   buildDefaultParameterValue,
   createRequestParameterDefinition,
+  parseOptionalNumberInput,
   type RequestParameterDefinition,
 } from "../utils/requestSchema";
 import {
@@ -1091,7 +1092,7 @@ onBeforeUnmount(() => {
                   label="Min length"
                   :model-value="selectedNode.minLength ?? ''"
                   type="number"
-                  @update:model-value="updateSelectedNode((node) => ({ ...node, minLength: $event ? Number($event) : null }))"
+                  @update:model-value="updateSelectedNode((node) => ({ ...node, minLength: parseOptionalNumberInput($event) }))"
                 />
               </v-col>
               <v-col cols="6">
@@ -1099,7 +1100,7 @@ onBeforeUnmount(() => {
                   label="Max length"
                   :model-value="selectedNode.maxLength ?? ''"
                   type="number"
-                  @update:model-value="updateSelectedNode((node) => ({ ...node, maxLength: $event ? Number($event) : null }))"
+                  @update:model-value="updateSelectedNode((node) => ({ ...node, maxLength: parseOptionalNumberInput($event) }))"
                 />
               </v-col>
             </v-row>
@@ -1110,7 +1111,7 @@ onBeforeUnmount(() => {
                   label="Minimum"
                   :model-value="selectedNode.minimum ?? ''"
                   type="number"
-                  @update:model-value="updateSelectedNode((node) => ({ ...node, minimum: $event ? Number($event) : null }))"
+                  @update:model-value="updateSelectedNode((node) => ({ ...node, minimum: parseOptionalNumberInput($event) }))"
                 />
               </v-col>
               <v-col cols="6">
@@ -1118,7 +1119,7 @@ onBeforeUnmount(() => {
                   label="Maximum"
                   :model-value="selectedNode.maximum ?? ''"
                   type="number"
-                  @update:model-value="updateSelectedNode((node) => ({ ...node, maximum: $event ? Number($event) : null }))"
+                  @update:model-value="updateSelectedNode((node) => ({ ...node, maximum: parseOptionalNumberInput($event) }))"
                 />
               </v-col>
             </v-row>

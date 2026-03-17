@@ -195,6 +195,22 @@ def _endpoint_import_operation(
     )
 
 
+def _list_all_endpoints(session: Session, *, batch_size: int = 500) -> list[EndpointDefinition]:
+    endpoints: list[EndpointDefinition] = []
+    offset = 0
+
+    while True:
+        batch = list_endpoints(session, limit=batch_size, offset=offset)
+        if not batch:
+            return endpoints
+
+        endpoints.extend(batch)
+        if len(batch) < batch_size:
+            return endpoints
+
+        offset += len(batch)
+
+
 def _serialize_endpoint_bundle(endpoints: list[EndpointDefinition]) -> EndpointBundle:
     sorted_endpoints = sorted(
         endpoints,
@@ -271,7 +287,7 @@ def _plan_endpoint_import(
         )
         return actions, operations, True
 
-    existing_endpoints = list_endpoints(session, limit=1000)
+    existing_endpoints = _list_all_endpoints(session)
     existing_by_key = {
         _endpoint_import_key(endpoint.method, endpoint.path): endpoint
         for endpoint in existing_endpoints
@@ -387,7 +403,7 @@ def _plan_endpoint_import(
 
 
 def _apply_endpoint_import_plan(session: Session, actions: list[_EndpointImportPlanAction]) -> None:
-    all_endpoints = list_endpoints(session, limit=1000)
+    all_endpoints = _list_all_endpoints(session)
     used_slugs = {endpoint.slug for endpoint in all_endpoints if endpoint.slug}
 
     for action in actions:
@@ -602,7 +618,7 @@ def export_all_endpoints(
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_admin_access),
 ) -> EndpointBundle:
-    return _serialize_endpoint_bundle(list_endpoints(session, limit=1000))
+    return _serialize_endpoint_bundle(_list_all_endpoints(session))
 
 
 @router.post("/endpoints/import", response_model=EndpointImportResponse)

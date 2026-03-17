@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import {
   createRequestParameterDefinition,
+  parseOptionalNumberInput,
   type RequestParameterDefinition,
   type RequestParameterLocation,
   type RequestParameterType,
@@ -207,7 +208,7 @@ function updateEnumValues(parameterId: string, rawValue: string): void {
                 label="Min length"
                 :model-value="parameter.minLength ?? ''"
                 type="number"
-                @update:model-value="patchParameter(parameter.id, { minLength: $event ? Number($event) : null })"
+                @update:model-value="patchParameter(parameter.id, { minLength: parseOptionalNumberInput($event) })"
               />
             </v-col>
             <v-col cols="12" md="4">
@@ -215,7 +216,7 @@ function updateEnumValues(parameterId: string, rawValue: string): void {
                 label="Max length"
                 :model-value="parameter.maxLength ?? ''"
                 type="number"
-                @update:model-value="patchParameter(parameter.id, { maxLength: $event ? Number($event) : null })"
+                @update:model-value="patchParameter(parameter.id, { maxLength: parseOptionalNumberInput($event) })"
               />
             </v-col>
           </v-row>
@@ -226,7 +227,7 @@ function updateEnumValues(parameterId: string, rawValue: string): void {
                 label="Minimum"
                 :model-value="parameter.minimum ?? ''"
                 type="number"
-                @update:model-value="patchParameter(parameter.id, { minimum: $event ? Number($event) : null })"
+                @update:model-value="patchParameter(parameter.id, { minimum: parseOptionalNumberInput($event) })"
               />
             </v-col>
             <v-col cols="12" md="6">
@@ -234,7 +235,7 @@ function updateEnumValues(parameterId: string, rawValue: string): void {
                 label="Maximum"
                 :model-value="parameter.maximum ?? ''"
                 type="number"
-                @update:model-value="patchParameter(parameter.id, { maximum: $event ? Number($event) : null })"
+                @update:model-value="patchParameter(parameter.id, { maximum: parseOptionalNumberInput($event) })"
               />
             </v-col>
           </v-row>

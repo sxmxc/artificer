@@ -4,6 +4,7 @@ import {
   createRequestParameterDefinition,
   extractRequestBodySchema,
   extractRequestParameterDefinitions,
+  parseOptionalNumberInput,
   syncPathParameterDefinitions,
   validateRequestParameterDefinitions,
 } from "./requestSchema";
@@ -165,5 +166,13 @@ describe("requestSchema utilities", () => {
         }),
       ),
     ).toBe("sample");
+  });
+
+  it("preserves zero-valued numeric input instead of treating it as empty", () => {
+    expect(parseOptionalNumberInput("0")).toBe(0);
+    expect(parseOptionalNumberInput(0)).toBe(0);
+    expect(parseOptionalNumberInput("-1")).toBe(-1);
+    expect(parseOptionalNumberInput("")).toBeNull();
+    expect(parseOptionalNumberInput("   ")).toBeNull();
   });
 });

@@ -1354,6 +1354,117 @@ def test_admin_endpoint_import_replace_all_requires_confirmation_and_deletes_mis
     assert replaced_endpoint["updated_at"]
 
 
+def test_admin_endpoint_import_plans_against_catalogs_beyond_the_first_thousand_rows(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    with Session(engine) as session:
+        session.add_all(
+            [
+                EndpointDefinition(
+                    name=f"Bulk route {index}",
+                    slug=f"bulk-route-{index}",
+                    method="GET",
+                    path=f"/api/bulk/{index}",
+                    category="bulk",
+                    tags=[],
+                    summary=f"Bulk route {index}",
+                    description="",
+                    enabled=True,
+                    auth_mode="none",
+                    request_schema={},
+                    response_schema={
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "x-builder": {"order": []},
+                        "x-mock": {"mode": "generate"},
+                    },
+                    success_status_code=200,
+                    error_rate=0.0,
+                    latency_min_ms=0,
+                    latency_max_ms=0,
+                    seed_key=None,
+                )
+                for index in range(1001)
+            ]
+        )
+        session.commit()
+
+    bundle = {
+        "bundle": {
+            "schema_version": 1,
+            "product": "Mockingbird",
+            "exported_at": "2026-03-17T00:00:00Z",
+            "endpoints": [
+                {
+                    "name": "Bulk route 1000 updated",
+                    "slug": "bulk-route-1000-updated",
+                    "method": "GET",
+                    "path": "/api/bulk/1000",
+                    "category": "bulk",
+                    "tags": ["imported"],
+                    "summary": "Bulk route 1000",
+                    "description": "Updated from import planning.",
+                    "enabled": True,
+                    "auth_mode": "none",
+                    "request_schema": {},
+                    "response_schema": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "x-builder": {"order": []},
+                        "x-mock": {"mode": "generate"},
+                    },
+                    "success_status_code": 200,
+                    "error_rate": 0.0,
+                    "latency_min_ms": 0,
+                    "latency_max_ms": 0,
+                    "seed_key": None,
+                }
+            ],
+        },
+        "dry_run": True,
+        "mode": "upsert",
+        "confirm_replace_all": False,
+    }
+
+    upsert_response = client.post("/api/admin/endpoints/import", json=bundle, headers=headers)
+    assert upsert_response.status_code == 200
+    assert upsert_response.json()["summary"] == {
+        "endpoint_count": 1,
+        "create_count": 0,
+        "update_count": 1,
+        "delete_count": 0,
+        "skip_count": 0,
+        "error_count": 0,
+    }
+    assert upsert_response.json()["operations"] == [
+        {
+            "action": "update",
+            "name": "Bulk route 1000 updated",
+            "method": "GET",
+            "path": "/api/bulk/1000",
+            "detail": None,
+        }
+    ]
+
+    replace_all_response = client.post(
+        "/api/admin/endpoints/import",
+        json={**bundle, "mode": "replace_all"},
+        headers=headers,
+    )
+    assert replace_all_response.status_code == 200
+    assert replace_all_response.json()["summary"] == {
+        "endpoint_count": 1,
+        "create_count": 0,
+        "update_count": 1,
+        "delete_count": 1000,
+        "skip_count": 0,
+        "error_count": 0,
+    }
+
+
 def test_openapi_emits_request_parameters_from_request_contract(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)

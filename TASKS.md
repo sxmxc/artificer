@@ -91,3 +91,4 @@ This file tracks the work needed to bootstrap and evolve the project.
 - [x] Expand the request builder beyond JSON bodies to path/query parameter modeling
 - [x] Sync response-side route-value pills with request path-parameter definitions and hide duplicate linked-field length controls
 - [x] Add full endpoint catalog export/import for backup and environment sync
+- [x] Fix large-catalog import planning and preserve zero-valued request-parameter numeric constraints

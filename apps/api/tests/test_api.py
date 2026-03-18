@@ -30,7 +30,7 @@ import app.services.admin_auth as admin_auth_module
 import app.services.route_runtime as route_runtime_module
 from app.db import create_db_and_tables, engine
 from app.main import app
-from app.models import EndpointDefinition
+from app.models import EndpointDefinition, RouteDeployment
 from scripts.seed import DEVICE_MODELS
 
 
@@ -1101,6 +1101,107 @@ def test_openapi_endpoint(seeded_db):
     assert response.status_code == 200
 
 
+def test_public_contract_surfaces_hide_runtime_managed_routes_without_active_deployment(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    legacy_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Legacy public route", path="/api/legacy-public"),
+        headers=headers,
+    )
+    assert legacy_response.status_code == 201
+
+    draft_only_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Draft-only runtime route", path="/api/draft-only"),
+        headers=headers,
+    )
+    assert draft_only_response.status_code == 201
+    draft_only_endpoint = draft_only_response.json()
+
+    current_implementation_response = client.get(
+        f"/api/admin/endpoints/{draft_only_endpoint['id']}/implementation/current",
+        headers=headers,
+    )
+    assert current_implementation_response.status_code == 200
+    save_draft_response = client.put(
+        f"/api/admin/endpoints/{draft_only_endpoint['id']}/implementation/current",
+        json={"flow_definition": current_implementation_response.json()["flow_definition"]},
+        headers=headers,
+    )
+    assert save_draft_response.status_code == 200
+
+    published_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Published runtime route", path="/api/published-runtime"),
+        headers=headers,
+    )
+    assert published_response.status_code == 201
+    published_endpoint = published_response.json()
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{published_endpoint['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_response.status_code == 201
+
+    deactivated_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Deactivated runtime route", path="/api/deactivated-runtime"),
+        headers=headers,
+    )
+    assert deactivated_response.status_code == 201
+    deactivated_endpoint = deactivated_response.json()
+
+    deactivate_publish_response = client.post(
+        f"/api/admin/endpoints/{deactivated_endpoint['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert deactivate_publish_response.status_code == 201
+
+    with Session(engine) as session:
+        deployment = session.get(RouteDeployment, deactivate_publish_response.json()["id"])
+        assert deployment is not None
+        deployment.is_active = False
+        session.add(deployment)
+        session.commit()
+    route_runtime_module.invalidate_deployment_registry()
+
+    openapi = client.get("/openapi.json").json()
+    assert "/api/legacy-public" in openapi["paths"]
+    assert "/api/published-runtime" in openapi["paths"]
+    assert "/api/draft-only" not in openapi["paths"]
+    assert "/api/deactivated-runtime" not in openapi["paths"]
+
+    reference_payload = client.get("/api/reference.json").json()
+    reference_paths = {endpoint["path"] for endpoint in reference_payload["endpoints"]}
+    assert "/api/legacy-public" in reference_paths
+    assert "/api/published-runtime" in reference_paths
+    assert "/api/draft-only" not in reference_paths
+    assert "/api/deactivated-runtime" not in reference_paths
+
+    public_legacy_response = client.get("/api/legacy-public")
+    assert public_legacy_response.status_code == 200
+    assert public_legacy_response.json() == {"status": "ok"}
+
+    public_draft_only_response = client.get("/api/draft-only")
+    assert public_draft_only_response.status_code == 404
+
+    public_deactivated_response = client.get("/api/deactivated-runtime")
+    assert public_deactivated_response.status_code == 404
+
+    public_published_response = client.get("/api/published-runtime")
+    assert public_published_response.status_code == 200
+    assert public_published_response.json()["route"] == {
+        "name": "Published runtime route",
+        "method": "GET",
+        "path": "/api/published-runtime",
+    }
+
+
 def test_public_landing_reference_and_brand_asset(seeded_db):
     client = TestClient(app)
 
@@ -1144,6 +1245,109 @@ def test_public_landing_reference_and_brand_asset(seeded_db):
     asset = client.get("/static/mockingbird-icon.svg")
     assert asset.status_code == 200
     assert asset.headers["content-type"].startswith("image/svg+xml")
+
+
+def test_public_surfaces_follow_route_level_deployment_history(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    published_route_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Published boundary route", path="/api/published-boundary"),
+        headers=headers,
+    )
+    assert published_route_response.status_code == 201
+    published_route = published_route_response.json()
+
+    legacy_route_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Legacy boundary route", path="/api/legacy-boundary"),
+        headers=headers,
+    )
+    assert legacy_route_response.status_code == 201
+
+    initial_openapi = client.get("/openapi.json").json()
+    assert "/api/published-boundary" in initial_openapi["paths"]
+    assert "/api/legacy-boundary" in initial_openapi["paths"]
+
+    initial_reference_paths = {
+        endpoint["path"] for endpoint in client.get("/api/reference.json").json()["endpoints"]
+    }
+    assert "/api/published-boundary" in initial_reference_paths
+    assert "/api/legacy-boundary" in initial_reference_paths
+    assert client.get("/api/published-boundary").json() == {"status": "ok"}
+
+    implementation_response = client.put(
+        f"/api/admin/endpoints/{published_route['id']}/implementation/current",
+        json={
+            "flow_definition": {
+                "schema_version": 1,
+                "nodes": [
+                    {"id": "trigger", "type": "api_trigger", "config": {}},
+                    {
+                        "id": "transform",
+                        "type": "transform",
+                        "config": {"output": {"status": "published"}},
+                    },
+                    {
+                        "id": "response",
+                        "type": "set_response",
+                        "config": {"status_code": 200, "body": {"$ref": "state.transform"}},
+                    },
+                ],
+                "edges": [
+                    {"source": "trigger", "target": "transform"},
+                    {"source": "transform", "target": "response"},
+                ],
+            }
+        },
+        headers=headers,
+    )
+    assert implementation_response.status_code == 200
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{published_route['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_response.status_code == 201
+    assert client.get("/api/published-boundary").json() == {"status": "published"}
+
+    active_reference_paths = {
+        endpoint["path"] for endpoint in client.get("/api/reference.json").json()["endpoints"]
+    }
+    assert "/api/published-boundary" in active_reference_paths
+    assert "/api/legacy-boundary" in active_reference_paths
+
+    with Session(engine) as session:
+        deployments = list(
+            session.execute(
+                select(RouteDeployment).where(RouteDeployment.route_id == int(published_route["id"]))
+            ).scalars()
+        )
+        assert len(deployments) == 1
+        deployments[0].is_active = False
+        session.add(deployments[0])
+        session.commit()
+
+    route_runtime_module.invalidate_deployment_registry()
+
+    updated_openapi = client.get("/openapi.json").json()
+    assert "/api/published-boundary" not in updated_openapi["paths"]
+    assert "/api/legacy-boundary" in updated_openapi["paths"]
+
+    updated_reference_paths = {
+        endpoint["path"] for endpoint in client.get("/api/reference.json").json()["endpoints"]
+    }
+    assert "/api/published-boundary" not in updated_reference_paths
+    assert "/api/legacy-boundary" in updated_reference_paths
+
+    unpublished_response = client.get("/api/published-boundary")
+    assert unpublished_response.status_code == 404
+
+    legacy_response = client.get("/api/legacy-boundary")
+    assert legacy_response.status_code == 200
+    assert legacy_response.json() == {"status": "ok"}
 
 
 def test_public_landing_escapes_embedded_reference_payload(empty_db):

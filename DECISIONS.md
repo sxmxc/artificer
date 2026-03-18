@@ -1,5 +1,10 @@
 # DECISIONS
 
+## 2026-03-18: Runtime-managed routes are public only through active deployments
+- **Boundary trigger**: Once a route has entered the live-runtime lifecycle by saving a `RouteImplementation` or creating a `RouteDeployment`, stop treating the plain enabled endpoint row as sufficient for public docs or legacy mock dispatch.
+- **Public surfaces**: Use one shared backend selector for OpenAPI, `/api/reference.json`, and legacy mock fallback so runtime-managed routes disappear from those public surfaces unless they still have an active deployment.
+- **Transition model**: Keep enabled routes with no runtime records on the legacy public path for now, so the repo can continue migrating route-by-route instead of forcing an all-at-once cutover.
+
 ## 2026-03-18: Bespoke editor drag-and-drop must move onto a maintained DnD library
 - **Interaction foundation**: Stop relying on native HTML5 `dragstart` / `drop` / `dataTransfer` as the primary interaction layer for bespoke editor surfaces such as the schema studio and Flow palette, because the browser-default drag model is too limited and inconsistent for the product we want.
 - **Preview quality**: Require a library-backed drag overlay/preview model so copy-style drags look like intentional tool copies rather than clipped screenshots of the original DOM node.

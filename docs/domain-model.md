@@ -174,6 +174,7 @@ Response shape notes:
 
 ## OpenAPI model
 The OpenAPI schema is generated dynamically by mapping `EndpointDefinition` fields to OpenAPI path entries.
+- Public OpenAPI only includes routes selected by the shared public-route policy: enabled legacy routes with no runtime records yet, plus runtime-managed routes that currently have an active deployment.
 - The root `request_schema` body becomes `requestBody` for `POST` / `PUT` / `PATCH` after stripping internal request-parameter metadata.
 - `request_schema["x-request"]["path"]` and `request_schema["x-request"]["query"]` become OpenAPI `parameters`.
 - `response_schema` becomes response schema after stripping `x-mock` (including template metadata) and `x-builder`.
@@ -181,6 +182,7 @@ The OpenAPI schema is generated dynamically by mapping `EndpointDefinition` fiel
 
 ## Public reference feed
 The public `/api/reference.json` feed exposes sanitized route metadata for the landing page quick reference.
+- The same shared public-route policy gates which routes appear there, so runtime-managed routes disappear from the feed unless they still have an active deployment.
 - `request_schema` and `response_schema` are stripped of internal `x-mock`, `x-builder`, and `x-request` keys before publishing.
 - `sample_response` is generated from `response_schema`.
 - `sample_request` is generated from the root request-body schema for `POST` / `PUT` / `PATCH` routes so the public examples modal can show the JSON body to send alongside the mock response.
@@ -191,4 +193,5 @@ These rules are part of the intended architecture and should remain true:
 - Public OpenAPI should be derived from route contracts, not from flow-node internals.
 - Live implementations should be stored in `flow_definition`, not mixed into `response_schema` or `x-mock`.
 - Preview/example generation can remain schema-driven even when deployed runtime behavior moves to the live flow engine.
+- Once a route has entered the live-runtime lifecycle, it should not remain publicly reachable or documented through the legacy enabled-route path unless it still has an active deployment.
 - Connectors and secrets belong to live implementations and deployments, not to public contract documents.

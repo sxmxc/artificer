@@ -62,22 +62,23 @@ Already shipped:
   - `Deploy`
 - Flow-tab inspector support for binding HTTP and Postgres nodes to saved shared connections
 - Flow-tab branch-aware logic editing for first-class `If` / `Switch` nodes
+- shared public-route policy across OpenAPI, `/api/reference.json`, and legacy mock fallback so runtime-managed routes stay public only while they still have an active deployment
 
 Still transitional:
-- the public runtime still falls back to the legacy schema-driven mock path when a route has not been deployed through the new runtime path
+- the public runtime still falls back to the legacy schema-driven mock path for routes that have not yet entered the live-runtime lifecycle
 - the new Vue Flow editor now supports branching, but it still leans on raw JSON entry instead of richer drag/drop data mapping, pinned sample data, or node-level input/output previews
-- OpenAPI and `/api/reference.json` still reflect the enabled route catalog rather than a stricter published-deployment contract boundary
+- OpenAPI and `/api/reference.json` now follow the shared public-route policy for runtime-managed routes, but legacy-only routes still remain public until the product fully cuts over to deployment-only publishing
 
 ## Recommended Implementation Order
 
-### 1. Tighten the publish boundary
+### 1. Continue tightening the publish boundary
 
-Move contract surfaces toward published runtime truth.
+Build on the new shared public-route policy and keep moving toward published runtime truth.
 
 Target:
 - OpenAPI reflects the public contract for published routes
 - `/api/reference.json` reflects routes intended for live/public use
-- undeployed routes should not silently look live in docs if they are not actually promoted
+- operators can explicitly unpublish runtime-managed routes instead of relying on database edits or implicit fallback behavior
 
 ### 2. Improve operator surfaces
 

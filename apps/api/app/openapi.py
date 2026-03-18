@@ -5,8 +5,8 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import FastAPI
 
 from app.config import Settings
-from app.crud import list_endpoints
 from app.db import session_scope
+from app.services.public_routes import list_public_endpoints
 from app.services.schema_contract import (
     extract_request_body_schema,
     extract_request_parameter_schemas,
@@ -127,17 +127,15 @@ def get_openapi(
         "info": {
             "title": app.title or "Mock API",
             "version": app.version or "0.0.0",
-            "description": "Mockingbird publishes a live OpenAPI document generated from the active public endpoint catalog.",
+            "description": "Mockingbird publishes a live OpenAPI document generated from active deployments plus legacy routes that have not entered the live runtime yet.",
         },
         "paths": {},
     }
 
     with session_scope() as session:
-        endpoints = list_endpoints(session, limit=1000)
+        endpoints = list_public_endpoints(session, limit=1000)
 
     for endpoint in endpoints:
-        if not endpoint.enabled:
-            continue
         path = endpoint.path if endpoint.path.startswith("/") else f"/{endpoint.path}"
         method = endpoint.method.lower()
         operations = openapi["paths"].setdefault(path, {})

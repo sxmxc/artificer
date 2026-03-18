@@ -11,9 +11,9 @@ from urllib.parse import unquote
 from fastapi import APIRouter, Request, Response
 from starlette.concurrency import run_in_threadpool
 
-from app.crud import list_endpoints
 from app.db import session_scope
 from app.services.mock_generation import preview_from_schema
+from app.services.public_routes import list_legacy_fallback_endpoints
 from app.services.route_runtime import execute_deployed_route_request
 
 router = APIRouter()
@@ -68,11 +68,9 @@ def _match_path_parameters(request_path: str, pattern: str) -> dict[str, str] | 
 
 def _find_matching_endpoint(request_path: str, method: str) -> tuple[MatchedEndpoint | None, dict[str, str]]:
     with session_scope() as session:
-        endpoints = list_endpoints(session, limit=1000)
+        endpoints = list_legacy_fallback_endpoints(session, limit=1000)
 
     for endpoint in endpoints:
-        if not endpoint.enabled:
-            continue
         if endpoint.method.upper() != method:
             continue
 

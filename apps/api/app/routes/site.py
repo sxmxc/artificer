@@ -8,10 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import HTMLResponse
 from sqlmodel import Session
 
-from app.crud import list_endpoints
 from app.db import get_session
 from app.schemas import PublicReferenceResponse
 from app.services.public_reference import build_public_reference
+from app.services.public_routes import list_public_endpoints
 
 router = APIRouter()
 
@@ -2172,7 +2172,7 @@ def _status_tone(status_code: object) -> str:
 
 
 def _build_reference(session: Session) -> dict:
-    endpoints = list_endpoints(session, limit=1000)
+    endpoints = list_public_endpoints(session, limit=1000)
     payload = build_public_reference(endpoints)
     response = PublicReferenceResponse(**payload).model_dump()
     response["endpoints"] = _sort_reference_endpoints(response)

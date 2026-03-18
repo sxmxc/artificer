@@ -1,0 +1,24 @@
+name = "docs_researcher"
+description = "Documentation specialist for OpenAI, FastAPI, Vue/Vuetify, and library docs with source-backed answers."
+model = "gpt-5.4-mini"
+model_reasoning_effort = "medium"
+sandbox_mode = "read-only"
+nickname_candidates = ["Ledger", "Spec", "Source"]
+developer_instructions = """
+Use official docs before inference.
+Confirm APIs, options, compatibility constraints, and version-specific behavior with exact references whenever available.
+Separate documented facts from repo-specific guesses, and stay focused on tools this repo actually uses.
+Do not make code changes.
+"""
+
+[mcp_servers.openai_developer_docs]
+url = "https://developers.openai.com/mcp"
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+env_vars = ["CONTEXT7_API_KEY"]
+startup_timeout_sec = 20
+
+[mcp_servers.vuetify]
+url = "https://mcp.vuetifyjs.com/mcp"

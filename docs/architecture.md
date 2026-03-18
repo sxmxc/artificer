@@ -15,6 +15,7 @@ Mockingbird is built as a **monorepo** with a public API surface and a private a
 The current milestone is the **first branch-aware live-flow slice**:
 - backend runtime scaffolding is in place
 - admin workflow tabs are in place
+- the deploy surface now supports both publish and disable-live actions against the active deployment
 - deployment-backed dispatch exists
 - the Flow editor now supports first-class `If` / `Switch` logic nodes plus `HTTP Request` and read-only `Postgres Query` nodes backed by shared `Connection` records
 
@@ -48,7 +49,7 @@ The current milestone is the **first branch-aware live-flow slice**:
 ## Data flow
 1. Admin user creates or edits route definitions via the UI.
 2. Backend persists route contracts in Postgres and can optionally store a draft `flow_definition` alongside them as a route implementation.
-3. Publishing a route implementation creates a deployment record and invalidates the in-memory runtime registry cache.
+3. Publishing a route implementation creates an active deployment record, while unpublishing deactivates the current deployment without deleting runtime history; both actions invalidate the in-memory runtime registry cache.
 4. The public runtime matches incoming requests against compiled active deployments first and executes the branch-aware live flow engine when a deployment exists.
 5. Routes with no runtime records still use the existing preview/mock generator during the transition, but routes with saved runtime records are hidden from public fallback unless an active deployment exists.
 6. The public landing page and `/api/reference.json` read from that same shared public-route policy, including generated request/response examples.
@@ -56,9 +57,9 @@ The current milestone is the **first branch-aware live-flow slice**:
 
 ## Immediate next step
 
-The next major implementation task should be to expose an explicit unpublish/disable-live action on top of the new shared public-route policy:
-- keep `request_schema` / `response_schema` as the published contract source of truth
-- keep `flow_definition` as the live implementation format
-- let operators remove a runtime-managed route from the active public set without editing the database directly
+The next major implementation task should be to make the route `Test` journey honest about preview/example output versus draft/live runtime execution:
+- keep `request_schema` / `response_schema` as the preview/example contract source of truth
+- keep `flow_definition` plus active deployments as the live runtime source of truth
+- label draft, published, disabled-live, and preview states clearly so operators do not confuse schema examples with deployed behavior
 - preserve the current preview/runtime split so connector secrets stay out of public contract surfaces
-- after that, deepen Flow UX around data mapping, input/output previews, and pinned sample data rather than adding non-API trigger families
+- after that, fix runtime-aware route deletion and then deepen Flow UX around data mapping, input/output previews, and pinned sample data rather than adding non-API trigger families

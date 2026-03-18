@@ -272,6 +272,70 @@ def test_route_runtime_scaffolding_endpoints_publish_and_record_executions(empty
     ]
 
 
+def test_admin_can_unpublish_active_route_without_deleting_definition(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Unpublish route", path="/api/unpublish-route"),
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    endpoint = create_response.json()
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_response.status_code == 201
+    assert publish_response.json()["is_active"] is True
+
+    live_response = client.get("/api/unpublish-route")
+    assert live_response.status_code == 200
+
+    unpublish_response = client.post(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments/unpublish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert unpublish_response.status_code == 200
+    unpublished = unpublish_response.json()
+    assert unpublished["environment"] == "production"
+    assert unpublished["is_active"] is False
+
+    deployments_response = client.get(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments",
+        headers=headers,
+    )
+    assert deployments_response.status_code == 200
+    assert deployments_response.json()[0]["is_active"] is False
+
+    implementation_response = client.get(
+        f"/api/admin/endpoints/{endpoint['id']}/implementation/current",
+        headers=headers,
+    )
+    assert implementation_response.status_code == 200
+    assert implementation_response.json()["route_id"] == endpoint["id"]
+
+    endpoints_response = client.get("/api/admin/endpoints", headers=headers)
+    assert endpoints_response.status_code == 200
+    assert any(candidate["id"] == endpoint["id"] for candidate in endpoints_response.json())
+
+    assert client.get("/api/unpublish-route").status_code == 404
+    assert "/api/unpublish-route" not in client.get("/openapi.json").json()["paths"]
+    reference_paths = {item["path"] for item in client.get("/api/reference.json").json()["endpoints"]}
+    assert "/api/unpublish-route" not in reference_paths
+
+    repeat_unpublish_response = client.post(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments/unpublish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert repeat_unpublish_response.status_code == 409
+
+
 def test_runtime_connections_can_be_created_and_listed(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)

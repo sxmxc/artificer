@@ -5,6 +5,11 @@
 - **Public surfaces**: Use one shared backend selector for OpenAPI, `/api/reference.json`, and legacy mock fallback so runtime-managed routes disappear from those public surfaces unless they still have an active deployment.
 - **Transition model**: Keep enabled routes with no runtime records on the legacy public path for now, so the repo can continue migrating route-by-route instead of forcing an all-at-once cutover.
 
+## 2026-03-18: Unpublishing deactivates deployments instead of deleting runtime history
+- **Operator workflow**: Expose an explicit admin publish/unpublish control so operators can remove a route from live traffic without editing the database directly.
+- **State model**: Treat unpublish as `RouteDeployment.is_active = false` for the target environment rather than deleting `RouteDeployment` or `RouteImplementation` rows, so deployment history and draft/live implementation state remain auditable.
+- **Public effect**: Because OpenAPI, `/api/reference.json`, and legacy fallback now share one public-route selector, deactivating the last active deployment immediately removes a runtime-managed route from those public surfaces until it is republished.
+
 ## 2026-03-18: Bespoke editor drag-and-drop must move onto a maintained DnD library
 - **Interaction foundation**: Stop relying on native HTML5 `dragstart` / `drop` / `dataTransfer` as the primary interaction layer for bespoke editor surfaces such as the schema studio and Flow palette, because the browser-default drag model is too limited and inconsistent for the product we want.
 - **Preview quality**: Require a library-backed drag overlay/preview model so copy-style drags look like intentional tool copies rather than clipped screenshots of the original DOM node.

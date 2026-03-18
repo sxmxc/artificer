@@ -42,6 +42,7 @@ from app.schemas import (
     PreviewResponse,
     RouteDeploymentPublishRequest,
     RouteDeploymentRead,
+    RouteDeploymentUnpublishRequest,
     RouteImplementationRead,
     RouteImplementationUpsert,
 )
@@ -84,6 +85,7 @@ from app.services.route_runtime import (
     list_execution_run_reads,
     list_route_deployments,
     publish_route_implementation,
+    unpublish_route_implementation,
     upsert_route_implementation,
 )
 from app.services.schema_contract import (
@@ -123,7 +125,11 @@ def _build_session_read(context: AdminContext) -> AdminSessionRead:
 
 def _raise_user_input_error(error: ValueError) -> None:
     detail = str(error)
-    status_code = status.HTTP_409_CONFLICT if "already in use" in detail.lower() else status.HTTP_400_BAD_REQUEST
+    status_code = (
+        status.HTTP_409_CONFLICT
+        if "already in use" in detail.lower() or "no active deployment" in detail.lower()
+        else status.HTTP_400_BAD_REQUEST
+    )
     raise HTTPException(status_code=status_code, detail=detail)
 
 
@@ -915,6 +921,23 @@ def publish_current_route_implementation(
     if not endpoint:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found")
     deployment = publish_route_implementation(session, endpoint, environment=payload.environment)
+    return RouteDeploymentRead.model_validate(deployment)
+
+
+@router.post("/endpoints/{endpoint_id}/deployments/unpublish", response_model=RouteDeploymentRead)
+def unpublish_current_route_implementation(
+    endpoint_id: int,
+    payload: RouteDeploymentUnpublishRequest,
+    session: Session = Depends(get_session),
+    _: AdminContext = Depends(require_route_write_access),
+) -> RouteDeploymentRead:
+    endpoint = get_endpoint(session, endpoint_id)
+    if not endpoint:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found")
+    try:
+        deployment = unpublish_route_implementation(session, endpoint, environment=payload.environment)
+    except ValueError as error:
+        _raise_user_input_error(error)
     return RouteDeploymentRead.model_validate(deployment)
 
 

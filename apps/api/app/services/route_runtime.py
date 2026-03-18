@@ -1936,6 +1936,38 @@ def publish_route_implementation(
     return deployment
 
 
+def unpublish_route_implementation(
+    session: Session,
+    route: EndpointDefinition,
+    *,
+    environment: str = "production",
+) -> RouteDeployment:
+    environment_name = str(environment or "production").strip() or "production"
+    active_deployments = list(
+        session.execute(
+            select(RouteDeployment)
+            .where(
+                RouteDeployment.route_id == int(route.id or 0),
+                RouteDeployment.environment == environment_name,
+                RouteDeployment.is_active == True,
+            )
+            .order_by(desc(RouteDeployment.published_at), desc(RouteDeployment.id))
+        ).scalars()
+    )
+    if not active_deployments:
+        raise ValueError(f"No active deployment is published for environment '{environment_name}'.")
+
+    for deployment in active_deployments:
+        deployment.is_active = False
+        deployment.updated_at = utc_now()
+        session.add(deployment)
+
+    session.commit()
+    session.refresh(active_deployments[0])
+    invalidate_deployment_registry()
+    return active_deployments[0]
+
+
 def list_connections(session: Session) -> list[Connection]:
     statement = select(Connection).order_by(Connection.name)
     return list(session.execute(statement).scalars())

@@ -238,6 +238,10 @@ export interface RouteDeploymentPublishPayload {
   environment: string;
 }
 
+export interface RouteDeploymentUnpublishPayload {
+  environment: string;
+}
+
 export interface ConnectionPayload {
   name: string;
   connector_type: ConnectionType;

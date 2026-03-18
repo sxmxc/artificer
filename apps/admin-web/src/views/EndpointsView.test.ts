@@ -10,6 +10,8 @@ import {
   listExecutions,
   listEndpoints,
   listRouteDeployments,
+  publishRouteImplementation,
+  unpublishRouteDeployment,
 } from "../api/admin";
 import { vuetify } from "../plugins/vuetify";
 import type { Connection, Endpoint, EndpointDraft, ExecutionRun, RouteDeployment, RouteImplementation } from "../types/endpoints";
@@ -57,6 +59,8 @@ vi.mock("../api/admin", async () => {
     listExecutions: vi.fn(),
     listEndpoints: vi.fn(),
     listRouteDeployments: vi.fn(),
+    publishRouteImplementation: vi.fn(),
+    unpublishRouteDeployment: vi.fn(),
     createEndpoint: vi.fn(),
     updateEndpoint: vi.fn(),
     deleteEndpoint: vi.fn(),
@@ -227,7 +231,7 @@ function createImplementation(routeId: number): RouteImplementation {
   };
 }
 
-function createDeployment(routeId: number): RouteDeployment {
+function createDeployment(routeId: number, overrides: Partial<RouteDeployment> = {}): RouteDeployment {
   return {
     id: routeId,
     route_id: routeId,
@@ -237,6 +241,7 @@ function createDeployment(routeId: number): RouteDeployment {
     published_at: "2026-03-18T00:00:00Z",
     created_at: "2026-03-18T00:00:00Z",
     updated_at: "2026-03-18T00:00:00Z",
+    ...overrides,
   };
 }
 
@@ -306,6 +311,8 @@ describe("EndpointsView", () => {
     vi.mocked(listExecutions).mockReset();
     vi.mocked(listEndpoints).mockReset();
     vi.mocked(listRouteDeployments).mockReset();
+    vi.mocked(publishRouteImplementation).mockReset();
+    vi.mocked(unpublishRouteDeployment).mockReset();
     authStub.logout.mockReset();
     authStub.canPreviewRoutes.value = true;
     authStub.canWriteRoutes.value = true;
@@ -314,6 +321,13 @@ describe("EndpointsView", () => {
     vi.mocked(listRouteDeployments).mockResolvedValue([createDeployment(1)]);
     vi.mocked(listExecutions).mockResolvedValue([createExecution(1)]);
     vi.mocked(listConnections).mockResolvedValue([createConnection(1)]);
+    vi.mocked(publishRouteImplementation).mockResolvedValue(createDeployment(1));
+    vi.mocked(unpublishRouteDeployment).mockResolvedValue(
+      createDeployment(1, {
+        is_active: false,
+        updated_at: "2026-03-18T00:01:00Z",
+      }),
+    );
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible",
@@ -465,5 +479,48 @@ describe("EndpointsView", () => {
     await flushPromises();
 
     expect(screen.queryByText("Available connections")).not.toBeInTheDocument();
+  });
+
+  it("lets operators disable the live route from the Deploy tab without deleting the draft", async () => {
+    vi.mocked(listEndpoints).mockResolvedValue([createEndpoint(1, { name: "List users" })]);
+    vi.mocked(listRouteDeployments)
+      .mockResolvedValueOnce([createDeployment(1)])
+      .mockResolvedValueOnce([
+        createDeployment(1, {
+          is_active: false,
+          updated_at: "2026-03-18T00:01:00Z",
+        }),
+      ]);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    await renderView("/endpoints/1?tab=deploy", "edit");
+    await flushPromises();
+
+    expect(screen.getByText("Implementation 1")).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("button", { name: "Disable live route" }));
+    await flushPromises();
+
+    expect(vi.mocked(unpublishRouteDeployment)).toHaveBeenCalledWith(
+      1,
+      { environment: "production" },
+      expect.objectContaining({ token: "session-token" }),
+    );
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Disable the live production deployment for List users? Public traffic and published docs will stop using this route until it is published again.",
+    );
+    expect(vi.mocked(listRouteDeployments)).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Live disabled")).toBeInTheDocument();
+    expect(screen.getByText("Live status")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Disabled the live production deployment. The route definition and flow implementation remain saved.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("This route has deployment history but no active live binding. Publish again to restore public traffic."),
+    ).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
   });
 });

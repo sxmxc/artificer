@@ -236,6 +236,10 @@ class RouteDeploymentPublishRequest(BaseModel):
     environment: str = "production"
 
 
+class RouteDeploymentUnpublishRequest(BaseModel):
+    environment: str = "production"
+
+
 class RouteDeploymentRead(BaseModel):
     id: int
     route_id: int

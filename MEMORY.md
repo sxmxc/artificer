@@ -38,7 +38,7 @@ Provide a Docker-first, route-first API platform with a polished public-facing s
 - The live runtime now also executes `if_condition` / `switch` branch nodes plus `http_request` and `postgres_query` nodes against shared `Connection` records, records summarized connector traces, and returns connector/runtime failures instead of silently falling back to the legacy mock path.
 - The route `Overview` surface once again shows the route identity form plus the create/save actions, so operators can use the normal create/edit journey without leaving the tabbed workspace.
 - The same audit confirmed that Flow `Transform` string authoring still saves inline `{{...}}` references literally at runtime, the `Test` console still mixes schema/example preview behavior with published runtime language, and route deletion fails once `RouteImplementation` / `RouteDeployment` / execution records reference the route.
-- The current deploy surface still supports publish-only behavior; there is no explicit unpublish action to remove a route from live runtime dispatch while preserving the underlying route definition and draft implementation.
+- The deploy surface now supports both publish and disable-live actions. Unpublishing deactivates the active `RouteDeployment`, removes the route from runtime-managed public surfaces, and keeps the route definition plus saved implementation history intact.
 - The schema studio and Flow palette interactions still rely on native browser drag/drop plus custom ghost helpers today; product direction now requires moving those bespoke surfaces onto a maintained drag-and-drop library with real drag overlays and richer copy/move behavior.
 - The admin account deletion path now removes all historical `adminsession` rows before deleting the user, so revoked or expired logins cannot strand dashboard accounts behind Postgres foreign-key errors.
 - The backend now reserves `/api/admin` plus other system-owned public paths like `/api` and `/api/reference.json`, so DB-defined public routes cannot trespass into private or framework-owned route space.
@@ -138,6 +138,7 @@ Provide a Docker-first, route-first API platform with a polished public-facing s
 ## Known Risks
 - Live OpenAPI generation may become slow if not cached.
 - The publish boundary is now tighter for runtime-managed routes, but legacy-only routes still remain public until they enter the live-runtime lifecycle, so the final "published routes only" cut is still a future product decision.
+- Unpublish is currently an environment-scoped deployment toggle, not a deletion workflow; the route-definition deletion path still needs a safe cascade strategy across implementations, deployments, and executions.
 - Drag-and-drop schema editing is meaningfully more complex than the old textarea editor, so tree-state regressions are still worth watching closely.
 - The new pill-tree canvas depends on small icon-only insertion anchors, so future UX passes should keep keyboard/accessibility affordances in view while refining drag/drop.
 - A canvas-first pivot could make JSON Schema editing feel too abstract if node placement and edges drift away from the stored parent/child contract, so prototypes should keep the mapping between canvas visuals and schema structure obvious.
@@ -160,8 +161,8 @@ Provide a Docker-first, route-first API platform with a polished public-facing s
 ## Notes for Next Agent
 - Read `docs/roadmap.md` first for the intended sequence and current architectural boundaries.
 - Keep tasks updated in `TASKS.md` as progress is made.
-- The shared public-route policy is now in place for OpenAPI, `/api/reference.json`, and legacy fallback; the next meaningful backend follow-up is an explicit unpublish/disable-live action so operators can change that state without touching the database.
-- After the unpublish path, prioritize the `Test` journey honesty work and then the remaining Flow/operator tooling such as connection management and data mapping.
+- The shared public-route policy now has an explicit admin unpublish path, so the next meaningful product follow-up is making the `Test` journey honest about preview/example output versus draft/live runtime execution.
+- After the `Test` journey pass, prioritize safe route deletion for runtime-managed routes and then the remaining Flow/operator tooling such as connection management and data mapping.
 - The Flow full-editor now has a much better canvas shell, but local browser QA still needs a current admin credential; the stale `ADMIN_USERNAME` / `ADMIN_PASSWORD` pair in `.env` no longer signs into the current dev database.
 - The next UX-heavy Flow follow-up should focus on data mapping and sample-data visibility rather than adding more trigger types; `api_trigger` remains the only entry node for now.
 - Prioritize the remaining audited UX blockers first: make `Test` clearly separate preview from live execution, add real string/data composition in Flow, show each node's incoming/outgoing shape, support caret-based helper-pill insertion in JSON fields, and make route deletion cascade safely through runtime records.

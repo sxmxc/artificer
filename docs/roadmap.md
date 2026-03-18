@@ -51,7 +51,7 @@ Already shipped:
   - `error_response`
 - admin API endpoints for:
   - current route implementation
-  - deployments and publish
+  - deployments, publish, and unpublish
   - connections
   - executions
 - admin route workspace tabs:
@@ -63,24 +63,32 @@ Already shipped:
 - Flow-tab inspector support for binding HTTP and Postgres nodes to saved shared connections
 - Flow-tab branch-aware logic editing for first-class `If` / `Switch` nodes
 - shared public-route policy across OpenAPI, `/api/reference.json`, and legacy mock fallback so runtime-managed routes stay public only while they still have an active deployment
+- explicit disable-live workflow in the admin API and `Deploy` tab, which deactivates the active deployment without deleting route or implementation history
 
 Still transitional:
 - the public runtime still falls back to the legacy schema-driven mock path for routes that have not yet entered the live-runtime lifecycle
 - the new Vue Flow editor now supports branching, but it still leans on raw JSON entry instead of richer drag/drop data mapping, pinned sample data, or node-level input/output previews
+- the `Test` journey still blurs preview/example output with draft/live runtime language, which is the next product-trust gap to close
 - OpenAPI and `/api/reference.json` now follow the shared public-route policy for runtime-managed routes, but legacy-only routes still remain public until the product fully cuts over to deployment-only publishing
 
 ## Recommended Implementation Order
 
-### 1. Continue tightening the publish boundary
+### 1. Make the `Test` journey honest
 
-Build on the new shared public-route policy and keep moving toward published runtime truth.
+Clarify what operators are seeing before expanding more runtime/operator tooling.
 
 Target:
-- OpenAPI reflects the public contract for published routes
-- `/api/reference.json` reflects routes intended for live/public use
-- operators can explicitly unpublish runtime-managed routes instead of relying on database edits or implicit fallback behavior
+- clearly separate schema preview/examples from live runtime execution
+- label draft, published, and disabled-live deployment states consistently across the route workspace
+- avoid implying that a saved draft or schema preview is already serving public traffic
 
-### 2. Improve operator surfaces
+### 2. Fix runtime-aware route deletion
+
+After the `Test` honesty pass:
+- allow deleting routes that already have implementations, deployments, and execution history
+- keep the deletion behavior explicit and safe rather than relying on manual database cleanup
+
+### 3. Improve operator surfaces
 
 After the above:
 - connection management UI
@@ -107,11 +115,11 @@ Do not:
 
 ## Current Hotspots
 
-If the next task is publish-boundary tightening, start here:
-- `apps/api/app/openapi.py`
-- `apps/api/app/services/public_reference.py`
-- `apps/api/app/routes/public.py`
-- `apps/api/app/services/route_runtime.py`
+If the next task is `Test` journey honesty, start here:
+- `apps/admin-web/src/views/EndpointsView.vue`
+- `apps/admin-web/src/api/admin.ts`
+- `apps/api/app/routes/admin.py`
+- `apps/api/tests/test_api.py`
 
 If the next task is connector/operator follow-up, start here:
 - `apps/api/app/services/route_runtime.py`

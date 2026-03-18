@@ -14,6 +14,7 @@ import {
   listRouteDeployments,
   publishRouteImplementation,
   saveCurrentRouteImplementation,
+  unpublishRouteDeployment,
   updateEndpoint,
 } from "../api/admin";
 import EndpointCatalog from "../components/EndpointCatalog.vue";
@@ -85,6 +86,7 @@ const isSavingImplementation = ref(false);
 const deployments = ref<RouteDeployment[]>([]);
 const isLoadingDeployments = ref(false);
 const isPublishingDeployment = ref(false);
+const isUnpublishingDeployment = ref(false);
 const executions = ref<ExecutionRun[]>([]);
 const isLoadingExecutions = ref(false);
 const connections = ref<Connection[]>([]);
@@ -255,6 +257,25 @@ const isFlowDirty = computed(
     serializedFlowDraftDefinition.value !== formattedCurrentFlowDefinition.value,
 );
 const activeDeployment = computed(() => deployments.value.find((deployment) => deployment.is_active) ?? null);
+const hasDeploymentHistory = computed(() => deployments.value.length > 0);
+const deploymentStatusTitle = computed(() => {
+  return activeDeployment.value ? "Active deployment" : "Live status";
+});
+const deploymentHeadline = computed(() => {
+  if (activeDeployment.value) {
+    return `Implementation ${activeDeployment.value.implementation_id}`;
+  }
+  return hasDeploymentHistory.value ? "Live disabled" : "Not published";
+});
+const deploymentSummary = computed(() => {
+  if (activeDeployment.value) {
+    return `Published ${formatTimestamp(activeDeployment.value.published_at)}`;
+  }
+  if (hasDeploymentHistory.value) {
+    return "This route has deployment history but no active live binding. Publish again to restore public traffic.";
+  }
+  return "Publish this route when the flow draft is ready for live traffic.";
+});
 
 function mergeEndpointCatalog(nextEndpoints: Endpoint[]): Endpoint[] {
   const currentEndpointsById = new Map(endpoints.value.map((endpoint) => [endpoint.id, endpoint]));
@@ -673,6 +694,48 @@ async function publishFlowDeployment(): Promise<void> {
     pageError.value = describeAdminError(error, "Unable to publish the current route implementation.");
   } finally {
     isPublishingDeployment.value = false;
+  }
+}
+
+async function unpublishFlowDeployment(): Promise<void> {
+  if (!auth.session.value || !selectedEndpoint.value) {
+    pageError.value = "Save the route first, then sign in again before changing the live deployment state.";
+    return;
+  }
+  if (!activeDeployment.value) {
+    pageError.value = "This route does not have an active live deployment to disable.";
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Disable the live ${activeDeployment.value.environment} deployment for ${selectedEndpoint.value.name}? Public traffic and published docs will stop using this route until it is published again.`,
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  isUnpublishingDeployment.value = true;
+  pageError.value = null;
+  pageSuccess.value = null;
+
+  try {
+    const deployment = await unpublishRouteDeployment(
+      selectedEndpoint.value.id,
+      { environment: activeDeployment.value.environment },
+      auth.session.value,
+    );
+    pageSuccess.value = `Disabled the live ${deployment.environment} deployment. The route definition and flow implementation remain saved.`;
+    await loadRouteRuntimeScaffolding(selectedEndpoint.value.id);
+  } catch (error) {
+    if (error instanceof AdminApiError && error.status === 401) {
+      void auth.logout("Your admin session expired. Sign in again before disabling the live route.");
+      void router.push({ name: "login" });
+      return;
+    }
+
+    pageError.value = describeAdminError(error, "Unable to disable the live route.");
+  } finally {
+    isUnpublishingDeployment.value = false;
   }
 }
 
@@ -1437,13 +1500,23 @@ const activeTitle = computed(() => {
                         </template>
                         <v-card-title>Deploy</v-card-title>
                         <v-card-subtitle>
-                          Publish the current flow implementation to the compiled runtime registry.
+                          Publish the current flow implementation to the compiled runtime registry or disable the current live binding.
                         </v-card-subtitle>
 
                         <template #append>
                           <div class="d-flex flex-wrap justify-end ga-2">
                             <v-btn prepend-icon="mdi-refresh" variant="text" @click="refreshRouteRuntimeScaffolding">
                               Refresh
+                            </v-btn>
+                            <v-btn
+                              v-if="activeDeployment"
+                              color="warning"
+                              :loading="isUnpublishingDeployment"
+                              prepend-icon="mdi-power-plug-off-outline"
+                              variant="tonal"
+                              @click="unpublishFlowDeployment"
+                            >
+                              Disable live route
                             </v-btn>
                             <v-btn
                               color="primary"
@@ -1462,17 +1535,9 @@ const activeTitle = computed(() => {
                       <v-card-text class="d-flex flex-column ga-4">
                         <div class="d-flex flex-wrap ga-3">
                           <v-sheet class="deployment-summary-card pa-4" rounded="xl">
-                            <div class="text-overline text-medium-emphasis">Active deployment</div>
-                            <div class="text-h6">
-                              {{ activeDeployment ? `Implementation ${activeDeployment.implementation_id}` : "Not published" }}
-                            </div>
-                            <div class="text-body-2 text-medium-emphasis">
-                              {{
-                                activeDeployment
-                                  ? `Published ${formatTimestamp(activeDeployment.published_at)}`
-                                  : "Publish this route when the flow draft is ready for live traffic."
-                              }}
-                            </div>
+                            <div class="text-overline text-medium-emphasis">{{ deploymentStatusTitle }}</div>
+                            <div class="text-h6">{{ deploymentHeadline }}</div>
+                            <div class="text-body-2 text-medium-emphasis">{{ deploymentSummary }}</div>
                           </v-sheet>
                           <v-sheet class="deployment-summary-card pa-4" rounded="xl">
                             <div class="text-overline text-medium-emphasis">Current draft</div>
@@ -1507,7 +1572,7 @@ const activeTitle = computed(() => {
                                   size="small"
                                   variant="tonal"
                                 >
-                                  {{ deployment.is_active ? "Active" : "Superseded" }}
+                                  {{ deployment.is_active ? "Active" : "Inactive" }}
                                 </v-chip>
                                 <span class="font-weight-medium">
                                   {{ deployment.environment }} · implementation {{ deployment.implementation_id }}

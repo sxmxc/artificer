@@ -54,6 +54,11 @@ Fields:
 
 The runtime registry is compiled from active deployments instead of scanning raw route-definition rows on every request.
 
+Operational notes:
+- Publishing creates a new active deployment for the target environment and supersedes the previously active one.
+- Unpublishing deactivates the currently active deployment for the target environment without deleting the deployment row or the underlying `RouteImplementation`.
+- Once a route has entered the live-runtime lifecycle, removing the last active deployment also removes that route from runtime-managed public surfaces such as OpenAPI, `/api/reference.json`, and legacy fallback dispatch until it is republished.
+
 ## Connection
 Represents a reusable connector configuration for future live steps such as outbound HTTP or Postgres access.
 

@@ -21,6 +21,7 @@ import type {
   PreviewResponsePayload,
   RouteDeployment,
   RouteDeploymentPublishPayload,
+  RouteDeploymentUnpublishPayload,
   RouteImplementation,
   RouteImplementationPayload,
 } from "../types/endpoints";
@@ -331,6 +332,17 @@ export function publishRouteImplementation(
   session: AdminSession,
 ): Promise<RouteDeployment> {
   return request<RouteDeployment>(`/api/admin/endpoints/${endpointId}/deployments/publish`, session, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function unpublishRouteDeployment(
+  endpointId: number,
+  payload: RouteDeploymentUnpublishPayload,
+  session: AdminSession,
+): Promise<RouteDeployment> {
+  return request<RouteDeployment>(`/api/admin/endpoints/${endpointId}/deployments/unpublish`, session, {
     method: "POST",
     body: JSON.stringify(payload),
   });

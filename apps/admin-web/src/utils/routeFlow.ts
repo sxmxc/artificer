@@ -386,7 +386,6 @@ function sortOutgoingEdgesForLayout(edges: RouteFlowEdge[]): RouteFlowEdge[] {
 }
 
 export function autoLayoutRouteFlowDefinition(definition: RouteFlowDefinition): RouteFlowDefinition {
-  const nodesById = new Map(definition.nodes.map((node) => [node.id, node]));
   const triggerNode = definition.nodes.find((node) => node.type === "api_trigger") ?? definition.nodes[0];
   if (!triggerNode) {
     return definition;

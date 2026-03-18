@@ -24,14 +24,14 @@ The current milestone is the **first branch-aware live-flow slice**:
   - FastAPI application serving two sets of endpoints:
     - **Admin API / control plane**: bearer-session auth, account-profile endpoints, password rotation, admin roles/permissions, dashboard-user management, CRUD operations for route definitions, plus new scaffolding for route implementations, deployments, connections, and executions.
     - **Public runtime**: the public catchall now checks a compiled deployment registry first and can execute the first live flow nodes for deployed routes.
-    - **Public landing/reference**: a branded homepage at `/` and `/api` plus `/api/reference.json`, both driven from the route catalog. The landing hero can read approved frame artwork from `apps/api/static/landing/`.
+    - **Public landing/reference**: a branded homepage at `/` and `/api` plus `/api/reference.json`, both driven from the shared public-route selector instead of blindly exposing every enabled route. The landing hero can read approved frame artwork from `apps/api/static/landing/`.
   - **Postgres** is used as the single source of truth for route definitions, implementations, deployments, connections, admin users, and execution history.
   - Private admin path space such as `/api/admin` is reserved and cannot be claimed by DB-backed public routes.
   - Baseline browser hardening headers now ship from the FastAPI layer, while the admin frontend mirrors them in both Vite dev and the runtime Nginx image.
-  - **OpenAPI generation** is performed at runtime from the active route catalog.
+  - **OpenAPI generation** is performed at runtime from the same shared public-route selector used by the landing/reference feed.
   - **Preview/examples generation** still supports fixed, true-random, and mocking-random response values from `response_schema`, explicit semantic value types for context-aware data like IDs, names, emails, prices, and long-form text fields, request-aware string templating through `x-mock.template`, and a deliberately snarkier Mockingbird voice in `mocking` mode.
   - The live runtime path now includes route implementations, environment deployments, execution traces, a compiled in-memory matcher cache keyed by method/path specificity, first-class `if_condition` / `switch` branch routing, and first-class `http_request` / `postgres_query` connector execution.
-  - During the transition, the public catchall still falls back to the legacy mock generator for routes that have not been published through the new deployment path yet.
+  - During the transition, the public catchall still falls back to the legacy mock generator for routes that have not yet entered the live-runtime lifecycle; once a route has a saved implementation/deployment record, it is public only through an active deployment.
 
 - **Frontend (`apps/admin-web/`)**
   - Vue + Vite + Vuetify admin dashboard.
@@ -50,15 +50,15 @@ The current milestone is the **first branch-aware live-flow slice**:
 2. Backend persists route contracts in Postgres and can optionally store a draft `flow_definition` alongside them as a route implementation.
 3. Publishing a route implementation creates a deployment record and invalidates the in-memory runtime registry cache.
 4. The public runtime matches incoming requests against compiled active deployments first and executes the branch-aware live flow engine when a deployment exists.
-5. Routes without a live deployment still use the existing preview/mock generator during the transition.
-6. The public landing page and `/api/reference.json` continue to read the route catalog for a live quick reference, including generated request/response examples.
-7. OpenAPI schema is generated from the same route catalog and served on `/openapi.json`.
+5. Routes with no runtime records still use the existing preview/mock generator during the transition, but routes with saved runtime records are hidden from public fallback unless an active deployment exists.
+6. The public landing page and `/api/reference.json` read from that same shared public-route policy, including generated request/response examples.
+7. OpenAPI schema is generated from the same shared public-route policy and served on `/openapi.json`.
 
 ## Immediate next step
 
-The next major implementation task should be to tighten the published-runtime boundary so public docs and live dispatch converge more cleanly:
+The next major implementation task should be to expose an explicit unpublish/disable-live action on top of the new shared public-route policy:
 - keep `request_schema` / `response_schema` as the published contract source of truth
 - keep `flow_definition` as the live implementation format
-- move OpenAPI and `/api/reference.json` closer to published deployment truth
+- let operators remove a runtime-managed route from the active public set without editing the database directly
 - preserve the current preview/runtime split so connector secrets stay out of public contract surfaces
 - after that, deepen Flow UX around data mapping, input/output previews, and pinned sample data rather than adding non-API trigger families

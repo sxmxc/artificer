@@ -29,7 +29,8 @@ This repository is designed for **AI-native collaboration**. AI agents (and huma
 - The backend now has `RouteImplementation`, `RouteDeployment`, `Connection`, `ExecutionRun`, and `ExecutionStep` scaffolding plus a deployment-backed runtime registry, first-class `If` / `Switch` logic nodes, and first-class `HTTP Request` / read-only `Postgres Query` connector execution.
 - The admin UI now has `Overview`, `Contract`, `Flow`, `Test`, and `Deploy` tabs.
 - The `Flow` tab now uses a **Vue Flow-based implementation editor** that still saves the backend `flow_definition` contract, keeps `API Trigger` as the only entry node, and can bind logic plus HTTP/Postgres nodes to the live route graph.
-- The highest-value next step is to tighten the published-runtime boundary so OpenAPI, public reference surfaces, and live dispatch align more closely with published deployments.
+- Public OpenAPI, `/api/reference.json`, and legacy mock fallback now treat routes with saved runtime history as deployment-gated; enabled legacy-only routes stay public until they enter the live runtime path.
+- The highest-value next steps are to add an explicit route unpublish/disable-live action and make the `Test` journey honest about preview/example output versus live runtime execution.
 
 ## 🧩 Coding Standards
 - Prefer clarity over cleverness.

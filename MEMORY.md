@@ -28,11 +28,11 @@ Provide a Docker-first, route-first API platform with a polished public-facing s
 - The first live runtime slice is intentionally synchronous, deployment-backed, and still limited to safe typed nodes, now including `if_condition`, `switch`, `http_request`, and read-only `postgres_query` alongside `api_trigger`, `validate_request`, `transform`, `set_response`, and `error_response`.
 - The workflow surface is borrowing data-flow and mapping ergonomics from n8n, but the product remains API-trigger-first for now rather than expanding into a generic multi-trigger automation builder.
 - The live flow editor now stores the same backend `flow_definition` shape plus canvas-friendly node positions, while the backend runtime continues to ignore editor-only layout metadata.
-- The public runtime still falls back to the legacy mock path for routes that have not been promoted into the new deployment-backed runtime yet.
+- The public runtime still falls back to the legacy mock path for routes that have not entered the live runtime lifecycle yet; once a route has a saved implementation or deployment record, it is public only through an active deployment.
 
 ## Current Status Snapshot
 - Docker Compose starts a working Postgres, FastAPI API, and Vite admin app with `make up`.
-- The backend exposes session-authenticated admin routes, DB-backed dashboard-user management, forced password rotation for bootstrap/reset credentials, deployment-backed live runtime dispatch, legacy DB-driven mock fallback, live OpenAPI generation, and an authenticated response preview endpoint.
+- The backend exposes session-authenticated admin routes, DB-backed dashboard-user management, forced password rotation for bootstrap/reset credentials, deployment-backed live runtime dispatch, legacy DB-driven mock fallback for legacy-only routes, live OpenAPI generation, and an authenticated response preview endpoint.
 - The backend now persists `RouteImplementation`, `RouteDeployment`, `Connection`, `ExecutionRun`, and `ExecutionStep` records, with an Alembic migration that bootstraps those tables into existing databases.
 - The public runtime now compiles active deployments into an in-memory matcher cache and records per-request execution traces when a live implementation handles the route.
 - The live runtime now also executes `if_condition` / `switch` branch nodes plus `http_request` and `postgres_query` nodes against shared `Connection` records, records summarized connector traces, and returns connector/runtime failures instead of silently falling back to the legacy mock path.
@@ -43,7 +43,7 @@ Provide a Docker-first, route-first API platform with a polished public-facing s
 - The admin account deletion path now removes all historical `adminsession` rows before deleting the user, so revoked or expired logins cannot strand dashboard accounts behind Postgres foreign-key errors.
 - The backend now reserves `/api/admin` plus other system-owned public paths like `/api` and `/api/reference.json`, so DB-defined public routes cannot trespass into private or framework-owned route space.
 - The backend now manages SQLModel sessions through a yielded request-scoped dependency plus a shared context manager, which prevents leaked connections from exhausting the Postgres pool under sustained traffic.
-- The backend now also exposes a branded Mockingbird landing page at `/` and `/api`, plus a live `/api/reference.json` feed backed directly by the current endpoint catalog.
+- The backend now also exposes a branded Mockingbird landing page at `/` and `/api`, plus a live `/api/reference.json` feed driven by the same shared public-route policy as OpenAPI and legacy fallback.
 - The public landing page now treats the opening viewport as a real full-screen hero, prefers explicit `hero-top.*` and `hero-bottom.*` artwork files from `apps/api/static/landing/`, pins immediately beneath a fixed topbar, and places the headline/copy in a wide translucent overlay band near the top of the art.
 - The public hero now uses separate top and bottom frame assets when available, falling back to the older single tall `hero.*` file only if the split pair is missing, and keeps the desktop copy band much wider so the headline and warning line are less vertically cramped.
 - The public hero once again carries the small `WARNING: The API may sometimes mock back.` callout, and the headline/copy now lean into Mockingbird's dry humor instead of generic sample-data language.
@@ -137,7 +137,7 @@ Provide a Docker-first, route-first API platform with a polished public-facing s
 
 ## Known Risks
 - Live OpenAPI generation may become slow if not cached.
-- The public contract surfaces still read from the enabled route catalog while the live runtime uses published deployments first, so docs/runtime drift remains a short-term transition risk until the publish boundary is tightened further.
+- The publish boundary is now tighter for runtime-managed routes, but legacy-only routes still remain public until they enter the live-runtime lifecycle, so the final "published routes only" cut is still a future product decision.
 - Drag-and-drop schema editing is meaningfully more complex than the old textarea editor, so tree-state regressions are still worth watching closely.
 - The new pill-tree canvas depends on small icon-only insertion anchors, so future UX passes should keep keyboard/accessibility affordances in view while refining drag/drop.
 - A canvas-first pivot could make JSON Schema editing feel too abstract if node placement and edges drift away from the stored parent/child contract, so prototypes should keep the mapping between canvas visuals and schema structure obvious.
@@ -160,8 +160,8 @@ Provide a Docker-first, route-first API platform with a polished public-facing s
 ## Notes for Next Agent
 - Read `docs/roadmap.md` first for the intended sequence and current architectural boundaries.
 - Keep tasks updated in `TASKS.md` as progress is made.
-- Focus next on tightening the published-runtime boundary so OpenAPI, `/api/reference.json`, and live dispatch agree more closely about what is truly public/live.
-- Keep the deployment-backed runtime boundary moving forward: the next meaningful work is publish-surface alignment plus a real connection-management UI on top of the now-live logic/connector node model.
+- The shared public-route policy is now in place for OpenAPI, `/api/reference.json`, and legacy fallback; the next meaningful backend follow-up is an explicit unpublish/disable-live action so operators can change that state without touching the database.
+- After the unpublish path, prioritize the `Test` journey honesty work and then the remaining Flow/operator tooling such as connection management and data mapping.
 - The Flow full-editor now has a much better canvas shell, but local browser QA still needs a current admin credential; the stale `ADMIN_USERNAME` / `ADMIN_PASSWORD` pair in `.env` no longer signs into the current dev database.
 - The next UX-heavy Flow follow-up should focus on data mapping and sample-data visibility rather than adding more trigger types; `api_trigger` remains the only entry node for now.
 - Prioritize the remaining audited UX blockers first: make `Test` clearly separate preview from live execution, add real string/data composition in Flow, show each node's incoming/outgoing shape, support caret-based helper-pill insertion in JSON fields, and make route deletion cascade safely through runtime records.

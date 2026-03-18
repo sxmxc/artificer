@@ -10,8 +10,8 @@ from app.time_utils import utc_now
 
 PRODUCT_NAME = "Mockingbird"
 PRODUCT_DESCRIPTION = (
-    "A route-first API platform whose public routes, samples, and OpenAPI reference stay aligned with the active"
-    " route catalog in the database."
+    "A route-first API platform whose public routes, samples, and OpenAPI reference stay aligned with active"
+    " deployments plus legacy routes that have not entered the live runtime yet."
 )
 BODY_METHODS = {"POST", "PUT", "PATCH"}
 

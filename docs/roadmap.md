@@ -62,7 +62,9 @@ Already shipped:
   - `Deploy`
 - a clearer `Test` journey and dedicated route tester that now separate admin contract previews from live/public requests and label live versus draft runtime state explicitly
 - shared Flow value rendering for runtime and editor inspection, so transform/response mappings can combine whole-value refs with inline `{{...}}` string interpolation
+- selection-aware quick-ref drag/drop in Flow JSON editors, so helper pills replace the current token/selection instead of clobbering the whole draft payload
 - Flow-tab inspector support for binding HTTP and Postgres nodes to saved shared connections
+- Flow-tab scoped connection manager for creating, editing, filtering, and retiring shared connections with lightweight `project` / `environment` metadata
 - Flow-tab branch-aware logic editing for first-class `If` / `Switch` nodes
 - maintained drag-and-drop for the schema editor and Flow palette, replacing bespoke native `dataTransfer` wiring with shared drag-preview/drop-target infrastructure
 - shared public-route policy across OpenAPI, `/api/reference.json`, and legacy mock fallback so runtime-managed routes stay public only while they still have an active deployment
@@ -71,7 +73,8 @@ Already shipped:
 
 Still transitional:
 - the public runtime still falls back to the legacy schema-driven mock path for routes that have not yet entered the live-runtime lifecycle
-- the new Vue Flow editor now supports branching plus pinned node-level sample data/preview inspection, but it still leans on raw JSON entry instead of richer drag/drop data mapping and cursor-aware helper insertion
+- the new Vue Flow editor now supports branching plus pinned node-level sample data/preview inspection, but it still leans on raw JSON entry instead of richer non-JSON data-mapping ergonomics
+- the new scoped connection manager is intentionally metadata-first; flow nodes still bind explicit saved connection ids rather than auto-resolving by environment at runtime
 - OpenAPI and `/api/reference.json` now follow the shared public-route policy for runtime-managed routes, but legacy-only routes still remain public until the product fully cuts over to deployment-only publishing
 
 ## Recommended Implementation Order
@@ -79,8 +82,6 @@ Still transitional:
 ### 1. Improve operator surfaces
 
 After the above:
-- connection management UI
-- cursor-aware helper insertion in Flow JSON editors
 - execution drill-down
 - replay/debug tooling
 - deployment promotion polish

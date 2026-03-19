@@ -1,5 +1,8 @@
 import type { Endpoint, RouteDeployment, RouteImplementation } from "../types/endpoints";
-import { resolveRoutePublicationStatus, routePublicationColor } from "./routePublicationStatus";
+import {
+  resolveRuntimeRoutePublicationStatus,
+  routePublicationColor,
+} from "./routePublicationStatus";
 
 export type RouteLiveRequestMode = "disabled" | "legacy_mock" | "live_active" | "live_disabled" | "draft_only";
 
@@ -23,9 +26,9 @@ export interface RouteTestState {
 export function buildRouteTestState(
   endpoint: Pick<Endpoint, "enabled" | "publication_status">,
   currentImplementation: Pick<RouteImplementation, "id" | "is_draft" | "version"> | null | undefined,
-  deployments: Array<Pick<RouteDeployment, "environment" | "implementation_id" | "is_active">>,
+  deployments: Array<Pick<RouteDeployment, "id" | "environment" | "implementation_id" | "is_active">>,
 ): RouteTestState {
-  const publicationStatus = resolveRoutePublicationStatus(endpoint);
+  const publicationStatus = resolveRuntimeRoutePublicationStatus(endpoint, currentImplementation, deployments);
   const activeDeployment = deployments.find((deployment) => deployment.is_active) ?? null;
   const activeEnvironment = activeDeployment?.environment ?? publicationStatus.active_deployment_environment ?? "production";
   const activeImplementationId = activeDeployment?.implementation_id ?? publicationStatus.active_implementation_id ?? null;

@@ -18,6 +18,7 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Derive admin live-mode status from current deployments/implementation data instead of stale cached publication status after publish/unpublish
 - [x] Sync the repository docs with backend-driven publication state, `/status` health, `/api/health`, and Swagger/ReDoc surfaces
 - [x] Make route publication state and API health backend-driven across `/status`, `/api/health`, and the admin dashboard
 - [x] Replace the old public landing page with a `/status` API status page and make `/` return no content

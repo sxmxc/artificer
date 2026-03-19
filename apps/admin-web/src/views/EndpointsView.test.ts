@@ -610,7 +610,7 @@ describe("EndpointsView", () => {
       "Disable the live production deployment for List users? Public traffic and published docs will stop using this route until it is published again.",
     );
     expect(vi.mocked(listRouteDeployments)).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("Live disabled")).toBeInTheDocument();
+    expect(screen.getAllByText("Live disabled").length).toBeGreaterThan(0);
     expect(screen.getByText("Live status")).toBeInTheDocument();
     expect(
       screen.getByText(

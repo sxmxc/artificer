@@ -40,7 +40,10 @@ import type {
   RouteImplementation,
 } from "../types/endpoints";
 import { normalizeRouteFlowDefinition, serializeRouteFlowDefinition } from "../utils/routeFlow";
-import { resolveRoutePublicationStatus, routePublicationColor } from "../utils/routePublicationStatus";
+import {
+  resolveRuntimeRoutePublicationStatus,
+  routePublicationColor,
+} from "../utils/routePublicationStatus";
 import { buildRouteTestState } from "../utils/routeTestState";
 import {
   buildPayload,
@@ -139,7 +142,9 @@ const selectedEndpoint = computed(() =>
   endpointId.value ? endpoints.value.find((endpoint) => endpoint.id === endpointId.value) ?? null : null,
 );
 const selectedPublicationStatus = computed(() =>
-  selectedEndpoint.value ? resolveRoutePublicationStatus(selectedEndpoint.value) : null,
+  selectedEndpoint.value
+    ? resolveRuntimeRoutePublicationStatus(selectedEndpoint.value, currentImplementation.value, deployments.value)
+    : null,
 );
 const selectedEndpointSyncKey = computed(() =>
   selectedEndpoint.value ? `${selectedEndpoint.value.id}:${selectedEndpoint.value.updated_at}` : null,

@@ -16,6 +16,7 @@ help:
 	@echo "  make test       # Run backend tests"
 	@echo "  make lint       # Run linting (backend + frontend)"
 	@echo "  make seed       # Seed the database (run migrations + seed)"
+	@echo "  make ui-test-user  # Create or reset a dedicated local admin QA account"
 	@echo "  make clean      # Cleanup generated artifacts"
 
 up:
@@ -47,6 +48,16 @@ logs-prod-local:
 
 seed:
 	docker compose run --rm api sh ./scripts/seed.sh
+
+ui-test-user:
+	docker compose run --rm \
+		-e UI_TEST_ADMIN_USERNAME="$(UI_TEST_ADMIN_USERNAME)" \
+		-e UI_TEST_ADMIN_PASSWORD_FILE="$(UI_TEST_ADMIN_PASSWORD_FILE)" \
+		-e UI_TEST_ADMIN_FULL_NAME="$(UI_TEST_ADMIN_FULL_NAME)" \
+		-e UI_TEST_ADMIN_EMAIL="$(UI_TEST_ADMIN_EMAIL)" \
+		-e UI_TEST_ADMIN_AVATAR_URL="$(UI_TEST_ADMIN_AVATAR_URL)" \
+		-e UI_TEST_ADMIN_ROLE="$(UI_TEST_ADMIN_ROLE)" \
+		api python -m scripts.create_test_admin
 
 test:
 	docker compose run --rm api pytest

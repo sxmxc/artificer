@@ -442,16 +442,6 @@ def seed():
             ),
             seed_key=_catalog_seed_key("job-status"),
         ),
-        EndpointCreate(
-            name="Health",
-            slug="health",
-            method="GET",
-            path="/api/health",
-            category="system",
-            tags=["system"],
-            summary="Health check",
-            response_schema=fixed_response({"status": "ok"}),
-        ),
     ]
 
     with session_scope() as session:

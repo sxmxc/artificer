@@ -217,6 +217,7 @@ function createRouterInstance() {
 }
 
 function createEndpoint(id: number, overrides: Partial<Endpoint> = {}): Endpoint {
+  const enabled = overrides.enabled ?? true;
   return {
     id,
     name: `Endpoint ${id}`,
@@ -227,7 +228,7 @@ function createEndpoint(id: number, overrides: Partial<Endpoint> = {}): Endpoint
     tags: [id % 2 === 0 ? "billing" : "users"],
     summary: null,
     description: null,
-    enabled: true,
+    enabled,
     auth_mode: "none",
     request_schema: {},
     response_schema: {},
@@ -238,6 +239,22 @@ function createEndpoint(id: number, overrides: Partial<Endpoint> = {}): Endpoint
     seed_key: null,
     created_at: "2026-03-16T00:00:00Z",
     updated_at: "2026-03-16T00:00:00Z",
+    publication_status: overrides.publication_status ?? {
+      code: enabled ? "published_live" : "disabled",
+      label: enabled ? "Published live" : "Disabled",
+      tone: enabled ? "success" : "error",
+      enabled,
+      is_public: enabled,
+      is_live: enabled,
+      uses_legacy_mock: false,
+      has_saved_implementation: true,
+      has_runtime_history: true,
+      has_deployment_history: true,
+      has_active_deployment: enabled,
+      active_deployment_environment: enabled ? "production" : null,
+      active_implementation_id: enabled ? id : null,
+      active_deployment_id: enabled ? id : null,
+    },
     ...overrides,
   };
 }

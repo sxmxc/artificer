@@ -1,5 +1,15 @@
 # DECISIONS
 
+## 2026-03-19: Route publication status and API health are backend-owned system state
+- **Publication model**: Compute route publication state from `EndpointDefinition.enabled` plus runtime implementation/deployment records, and expose that shared `publication_status` model to both admin and public read surfaces instead of inferring status from `enabled` alone in the browser.
+- **Operational health**: Treat `/api/health` as a reserved system endpoint with dependency-by-dependency checks for the API process, database, deployment registry, public reference generation, and OpenAPI generation.
+- **Public status surface**: Use the shared publication-state model on `/status` so published routes show whether they are served by the live runtime or legacy mock path, while keeping unpublished or disabled routes off the public reference feed.
+
+## 2026-03-19: Public route catalog now lives on `/status`, not `/`
+- **Public surface**: Remove the old branded landing page from `/` and `/api`; those roots should return no content instead of presenting a generic homepage for enterprise deployments.
+- **Status framing**: Keep the existing live-route quick reference available, but move it to `/status` and frame it as an API status surface with current health/context links instead of marketing copy.
+- **Shared source**: Continue driving `/status`, `/api/reference.json`, and `/openapi.json` from the same shared public-route selector so the human-facing status page stays aligned with machine-facing contract surfaces.
+
 ## 2026-03-19: Connection connector type is immutable after creation
 - **Runtime safety**: Treat `Connection.connector_type` as a stable identity property so existing flow nodes bound by `connection_id` cannot be silently retargeted from `http` to `postgres` (or vice versa) by update calls.
 - **Surface parity**: Keep the admin API aligned with the Flow connection dialog, which already treats connector type as immutable during edits.
@@ -337,10 +347,10 @@
 - **Theme discipline**: Any custom shell/page styling should derive contrast from Vuetify theme tokens instead of hard-coded light-on-dark values, so light and dark mode stay equally legible during future UI polish passes.
 
 ## 2026-03-18: Public/admin security hardening baseline
-- **Landing-page bootstrap**: Never inline live catalog JSON into executable script assignments; embed reference payloads through an escaped `application/json` script block and parse them at runtime so stored endpoint content cannot break out into executable page script.
+- **Status-page bootstrap**: Never inline live catalog JSON into executable script assignments; embed reference payloads through an escaped `application/json` script block and parse them at runtime so stored endpoint content cannot break out into executable page script.
 - **Public routing**: Treat saved public paths as literal text plus explicit `{param}` placeholders, escape static segments before building match regexes, and keep the async catchall's sync DB/sample-generation work off the event loop so runtime traffic does not stall on synchronous SQLModel access.
 - **Admin auth**: Add baseline brute-force protection through per-account lockouts, per-IP throttling, and audit logging of failed/blocked/successful login attempts, while keeping `/api/admin/account/me` partial updates truly partial instead of requiring `username` on every profile edit.
-- **Headers**: Serve baseline browser hardening headers from both the FastAPI app and the admin runtime/dev shells, with CSP tuned separately for the public landing page, JSON API responses, and the Vite dev experience.
+- **Headers**: Serve baseline browser hardening headers from both the FastAPI app and the admin runtime/dev shells, with CSP tuned separately for the public status page, Swagger/ReDoc docs pages, JSON API responses, and the Vite dev experience.
 
 ## 2026-03-18: Route-first platform pivot foundation
 - **Product framing**: Reframe the repo, docs, and admin UI around a route-first API platform rather than a mock-only product, while keeping the existing schema-driven generator as preview/example infrastructure during the transition.

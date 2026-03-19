@@ -1669,45 +1669,112 @@ def test_public_contract_surfaces_hide_runtime_managed_routes_without_active_dep
     }
 
 
-def test_public_landing_reference_and_brand_asset(seeded_db):
+def test_admin_endpoint_reads_include_runtime_aware_publication_status(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    disabled_response = client.post(
+        "/api/admin/endpoints",
+        json={
+            **_endpoint_payload(name="Disabled route", path="/api/admin-status-disabled"),
+            "enabled": False,
+        },
+        headers=headers,
+    )
+    assert disabled_response.status_code == 201
+
+    legacy_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Legacy route", path="/api/admin-status-legacy"),
+        headers=headers,
+    )
+    assert legacy_response.status_code == 201
+
+    draft_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Draft route", path="/api/admin-status-draft"),
+        headers=headers,
+    )
+    assert draft_response.status_code == 201
+    draft_route = draft_response.json()
+
+    save_draft_response = client.put(
+        f"/api/admin/endpoints/{draft_route['id']}/implementation/current",
+        json={"flow_definition": _live_route_flow_definition(body={"mode": "draft-only"})},
+        headers=headers,
+    )
+    assert save_draft_response.status_code == 200
+
+    live_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Live route", path="/api/admin-status-live"),
+        headers=headers,
+    )
+    assert live_response.status_code == 201
+    live_route = live_response.json()
+
+    publish_live_response = client.post(
+        f"/api/admin/endpoints/{live_route['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_live_response.status_code == 201
+
+    list_response = client.get("/api/admin/endpoints", headers=headers)
+    assert list_response.status_code == 200
+    statuses_by_path = {
+        endpoint["path"]: endpoint["publication_status"]["code"]
+        for endpoint in list_response.json()
+    }
+    assert statuses_by_path["/api/admin-status-disabled"] == "disabled"
+    assert statuses_by_path["/api/admin-status-legacy"] == "legacy_mock"
+    assert statuses_by_path["/api/admin-status-draft"] == "draft_only"
+    assert statuses_by_path["/api/admin-status-live"] == "published_live"
+
+
+def test_public_status_page_reference_and_brand_asset(seeded_db):
     client = TestClient(app)
 
-    landing = client.get("/")
-    assert landing.status_code == 200
-    assert "Mockingbird" in landing.text
-    assert "data and no bedside manner" in landing.text
-    assert "WARNING: The API may sometimes mock back." in landing.text
-    assert "hero-title-accent" in landing.text
-    assert "hero-panel-bottom" in landing.text
-    assert "hero-panel-media" in landing.text
-    assert "/static/landing/hero-top.svg" in landing.text
-    assert "/static/landing/hero-bottom.svg" in landing.text
-    assert "/api/reference.json" in landing.text
-    assert "reference-table-body" in landing.text
-    assert "payload-popover" in landing.text
-    assert "payload-popover-request-section" in landing.text
-    assert "modal-card-head-content" in landing.text
-    assert "theme-toggle" in landing.text
-    assert "bulma@1.0.4" in landing.text
-    assert "status-success" in landing.text
+    root = client.get("/")
+    assert root.status_code == 204
+    assert root.text == ""
 
-    api_landing = client.get("/api")
-    assert api_landing.status_code == 200
-    assert "Browse live routes, inspect example payloads" in api_landing.text
+    api_root = client.get("/api")
+    assert api_root.status_code == 204
+    assert api_root.text == ""
+
+    status_page = client.get("/status")
+    assert status_page.status_code == 200
+    assert "Mockingbird API status." in status_page.text
+    assert "Dependency health" in status_page.text
+    assert "/api/reference.json" in status_page.text
+    assert "/openapi.json" in status_page.text
+    assert "Published routes right now." in status_page.text
+    assert "Checked dependency by dependency." in status_page.text
+    assert "reference-table-body" in status_page.text
+    assert "payload-popover" in status_page.text
+    assert "payload-popover-request-section" in status_page.text
+    assert "modal-card-head-content" in status_page.text
+    assert "theme-toggle" in status_page.text
+    assert "bulma@1.0.4" in status_page.text
+    assert "status-success" in status_page.text
 
     reference = client.get("/api/reference.json")
     assert reference.status_code == 200
     payload = reference.json()
     assert payload["product_name"] == "Mockingbird"
     assert payload["endpoint_count"] >= 1
+    assert "/api/health" not in {endpoint["path"] for endpoint in payload["endpoints"]}
     assert any(endpoint["sample_response"] is not None for endpoint in payload["endpoints"])
 
     post_endpoint = next(endpoint for endpoint in payload["endpoints"] if endpoint["method"] == "POST")
     assert post_endpoint["sample_request"] is not None
     assert post_endpoint["sample_response"] is not None
+    assert post_endpoint["publication_status"]["code"] in {"legacy_mock", "published_live"}
 
     get_endpoint = next(endpoint for endpoint in payload["endpoints"] if endpoint["method"] == "GET")
     assert get_endpoint["sample_request"] is None
+    assert get_endpoint["publication_status"]["label"]
 
     asset = client.get("/static/mockingbird-icon.svg")
     assert asset.status_code == 200
@@ -1817,7 +1884,7 @@ def test_public_surfaces_follow_route_level_deployment_history(empty_db):
     assert legacy_response.json() == {"status": "ok"}
 
 
-def test_public_landing_escapes_embedded_reference_payload(empty_db):
+def test_public_status_page_escapes_embedded_reference_payload(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)
 
@@ -1831,21 +1898,42 @@ def test_public_landing_escapes_embedded_reference_payload(empty_db):
     )
     assert create_response.status_code == 201
 
-    landing = client.get("/")
-    assert landing.status_code == 200
-    assert '<script id="initial-reference-data" type="application/json">' in landing.text
-    assert "\\u003c/script\\u003e\\u003cscript\\u003ewindow.__MB_XSS__" in landing.text
-    assert '</script><script>window.__MB_XSS__="pwned"</script>' not in landing.text
+    status_page = client.get("/status")
+    assert status_page.status_code == 200
+    assert '<script id="initial-reference-data" type="application/json">' in status_page.text
+    assert "\\u003c/script\\u003e\\u003cscript\\u003ewindow.__MB_XSS__" in status_page.text
+    assert '</script><script>window.__MB_XSS__="pwned"</script>' not in status_page.text
 
 
 def test_security_headers_are_present_on_public_and_api_responses(seeded_db):
     client = TestClient(app)
 
-    landing = client.get("/")
-    assert landing.headers["x-content-type-options"] == "nosniff"
-    assert landing.headers["x-frame-options"] == "DENY"
-    assert landing.headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    assert "content-security-policy" in landing.headers
+    root = client.get("/")
+    assert root.headers["x-content-type-options"] == "nosniff"
+    assert root.headers["x-frame-options"] == "DENY"
+    assert root.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert "content-security-policy" in root.headers
+
+    status_page = client.get("/status")
+    assert status_page.headers["x-content-type-options"] == "nosniff"
+    assert status_page.headers["x-frame-options"] == "DENY"
+    assert status_page.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert "content-security-policy" in status_page.headers
+    assert "https://cdn.jsdelivr.net" in status_page.headers["content-security-policy"]
+
+    docs_page = client.get("/docs")
+    assert docs_page.status_code == 200
+    assert docs_page.headers["x-content-type-options"] == "nosniff"
+    assert docs_page.headers["x-frame-options"] == "DENY"
+    assert docs_page.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert "https://cdn.jsdelivr.net" in docs_page.headers["content-security-policy"]
+    assert "'unsafe-inline'" in docs_page.headers["content-security-policy"]
+
+    redoc_page = client.get("/redoc")
+    assert redoc_page.status_code == 200
+    assert "https://cdn.jsdelivr.net" in redoc_page.headers["content-security-policy"]
+    assert "https://fonts.googleapis.com" in redoc_page.headers["content-security-policy"]
+    assert "https://fonts.gstatic.com" in redoc_page.headers["content-security-policy"]
 
     reference = client.get("/api/reference.json")
     assert reference.headers["x-content-type-options"] == "nosniff"
@@ -2358,6 +2446,48 @@ def test_private_admin_paths_cannot_be_created_as_public_mocks(empty_db):
     assert "reserved for private admin routes" in response.json()["detail"]
 
 
+def test_system_health_path_cannot_be_created_as_public_mock(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    response = client.post(
+        "/api/admin/endpoints",
+        json={
+            "name": "Shadow Health",
+            "method": "GET",
+            "path": "/api/health",
+            "category": "security",
+            "tags": [],
+            "summary": "Should be rejected",
+            "description": "Reserved path",
+            "enabled": True,
+            "auth_mode": "none",
+            "request_schema": {},
+            "response_schema": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "x-mock": {"mode": "fixed", "value": "blocked", "options": {}},
+                    }
+                },
+                "required": ["status"],
+                "x-builder": {"order": ["status"]},
+                "x-mock": {"mode": "generate"},
+            },
+            "success_status_code": 200,
+            "error_rate": 0.0,
+            "latency_min_ms": 0,
+            "latency_max_ms": 0,
+            "seed_key": None,
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert "reserved for the system health endpoint" in response.json()["detail"]
+
+
 def test_public_route_matching_treats_saved_paths_as_literals(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)
@@ -2823,7 +2953,13 @@ def test_runtime_dispatch_matches_seeded_endpoints(seeded_db):
 
     health_response = client.get("/api/health")
     assert health_response.status_code == 200
-    assert health_response.json() == {"status": "ok"}
+    health_payload = health_response.json()
+    assert health_payload["status"] == "healthy"
+    assert {"api", "database", "deployment_registry", "public_reference", "openapi"} <= {
+        dependency["name"]
+        for dependency in health_payload["dependencies"]
+    }
+    assert health_payload["summary"]["public_route_count"] >= 1
 
 
 def test_runtime_dispatch_can_echo_path_parameters_from_the_route(empty_db):

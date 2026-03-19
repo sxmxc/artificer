@@ -17,6 +17,7 @@ import {
   validateRequestParameterDefinitions,
   type RequestParameterDefinition,
 } from "../utils/requestSchema";
+import { resolveRoutePublicationStatus, routePublicationColor } from "../utils/routePublicationStatus";
 import { extractPathParameters } from "../utils/pathParameters";
 
 type RequestSection = "body" | "path" | "query";
@@ -318,8 +319,8 @@ async function saveSchemas(): Promise<void> {
         <v-card-text class="d-flex flex-column flex-xl-row justify-space-between ga-4">
           <div class="d-flex flex-wrap ga-2">
             <v-chip color="primary" label size="small" variant="tonal">{{ endpoint.method }}</v-chip>
-            <v-chip :color="endpoint.enabled ? 'accent' : 'error'" label size="small" variant="tonal">
-              {{ endpoint.enabled ? "Live" : "Disabled" }}
+            <v-chip :color="routePublicationColor(resolveRoutePublicationStatus(endpoint))" label size="small" variant="tonal">
+              {{ resolveRoutePublicationStatus(endpoint).label }}
             </v-chip>
             <v-chip v-if="endpoint.category" color="secondary" label size="small" variant="tonal">
               {{ endpoint.category }}

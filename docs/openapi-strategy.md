@@ -6,13 +6,14 @@ The OpenAPI spec must always reflect the active public API contract stored in th
 - **Source of truth**: `EndpointDefinition` records in Postgres.
 - **Generation**: Build the OpenAPI object dynamically on each request to `/openapi.json`.
 - **Caching**: For v1, keep it simple and rebuild on demand; add caching later if performance becomes a concern.
-- **Public alignment**: The branded landing page and `/api/reference.json` should read from the same active catalog so human-facing and machine-facing references do not drift.
+- **Public alignment**: The `/status` page and `/api/reference.json` should read from the same active catalog and route publication-state model so human-facing and machine-facing references do not drift.
 
 ## Transition state
 
 Today:
-- OpenAPI is still generated from enabled `EndpointDefinition` rows.
+- OpenAPI is generated from the shared public-route selector: enabled legacy routes that have not entered the live runtime yet, plus runtime-managed routes with an active deployment.
 - The live runtime can already dispatch through published `RouteDeployment` records first.
+- `/api/health` is now a system-owned health endpoint rather than a DB-authored mock route, so operational health stays separate from route contracts.
 
 Target state:
 - OpenAPI should reflect the published public contract boundary, not merely any enabled draft route.
@@ -28,7 +29,7 @@ Target state:
 
 - Do not generate OpenAPI from `flow_definition`.
 - Do not leak connector metadata, secrets, or execution-node configuration into the public spec.
-- When the publish boundary is tightened, update `/openapi.json`, `/api/reference.json`, and the public landing page together so those surfaces keep moving in lockstep.
+- When the publish boundary is tightened, update `/openapi.json`, `/api/reference.json`, and the public status page together so those surfaces keep moving in lockstep.
 
 ## Developer notes
 - When tweaking the endpoint schema model, update both the generation logic and the docs.

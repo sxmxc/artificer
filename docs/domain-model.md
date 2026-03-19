@@ -194,11 +194,17 @@ The OpenAPI schema is generated dynamically by mapping `EndpointDefinition` fiel
 - `summary` and `description` are used in the OpenAPI operation.
 
 ## Public reference feed
-The public `/api/reference.json` feed exposes sanitized route metadata for the landing page quick reference.
+The public `/api/reference.json` feed exposes sanitized route metadata for the `/status` page quick reference.
 - The same shared public-route policy gates which routes appear there, so runtime-managed routes disappear from the feed unless they still have an active deployment.
+- Each published route now also carries a computed `publication_status` payload so the status page can show whether a route is deployment-backed live or still on the legacy mock path without hard-coding those labels in the browser.
 - `request_schema` and `response_schema` are stripped of internal `x-mock`, `x-builder`, and `x-request` keys before publishing.
 - `sample_response` is generated from `response_schema`.
 - `sample_request` is generated from the root request-body schema for `POST` / `PUT` / `PATCH` routes so the public examples modal can show the JSON body to send alongside the mock response.
+
+## System health endpoint
+`/api/health` is now a system-owned health surface rather than a DB-authored route.
+- The response reports an overall status plus per-dependency checks for the API process, database, deployment registry, public reference generation, and OpenAPI generation.
+- `/api/health` is reserved and cannot be claimed by user-authored route definitions.
 
 ## Boundary rules
 

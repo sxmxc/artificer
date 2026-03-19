@@ -18,6 +18,10 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Sync the repository docs with backend-driven publication state, `/status` health, `/api/health`, and Swagger/ReDoc surfaces
+- [x] Make route publication state and API health backend-driven across `/status`, `/api/health`, and the admin dashboard
+- [x] Replace the old public landing page with a `/status` API status page and make `/` return no content
+- [x] Align README and setup docs with the `/status`, `/api/health`, and Swagger/ReDoc CSP changes
 - [x] Enforce immutable connector types on connection updates so API clients cannot retarget existing connection ids across HTTP/Postgres
 - [x] Let Flow helper/ref pills drag and drop into JSON editors at the current cursor or selection instead of replacing the whole field payload
 - [x] Add project/environment-aware connection management UI instead of the current route-level placeholder card
@@ -37,7 +41,7 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [x] Implement core endpoint definition model + CRUD API
 - [x] Implement runtime dispatch for mock endpoints driven by DB
 - [x] Implement live OpenAPI generation from DB definitions
-- [x] Seed initial endpoint catalog (15 endpoints)
+- [x] Seed initial endpoint catalog (14 endpoints)
 - [x] Add baseline backend tests for bootstrap and OpenAPI generation
 - [x] Stabilize Docker Compose bootstrap and startup scripts for local development
 - [x] Make frontend Vite dev access configurable for remote hosts and Docker proxying

@@ -5,7 +5,7 @@
 
 A Docker-first, route-first API platform for designing, testing, publishing, and eventually operating configurable API routes through a dedicated admin console. This fork is evolving upstream Mockingbird toward a clearer split between public contract authoring, live flow implementations, deployment history, and execution tracing.
 
-The current system already includes a live public landing page, dynamic OpenAPI, a private admin dashboard, and the first deployment-backed runtime scaffolding for published route implementations. The older schema-driven mock generator still powers previews, examples, and fallback behavior while the live runtime grows into the primary execution path.
+The current system already includes a live public API status page, dynamic OpenAPI, a private admin dashboard, and the first deployment-backed runtime scaffolding for published route implementations. The older schema-driven mock generator still powers previews, examples, and fallback behavior while the live runtime grows into the primary execution path.
 
 ## 🧭 Fork Status
 
@@ -28,10 +28,10 @@ make up
 
 3. Open the product surfaces:
 
-- Public API landing page: http://localhost:8000
+- Public API status page: http://localhost:8000/status
 - Admin dashboard: http://localhost:3000
 - OpenAPI JSON: http://localhost:8000/openapi.json
-- FastAPI docs: http://localhost:8000/docs
+- FastAPI docs: http://localhost:8000/docs and http://localhost:8000/redoc
 
 If `ADMIN_BOOTSTRAP_PASSWORD` is left blank, the API prints a one-time bootstrap password in its startup logs the first time it creates the initial admin account. That account must rotate its password before the rest of the admin API unlocks.
 
@@ -69,10 +69,11 @@ make clean-prod-local
 - **Deployment-backed runtime foundation**: draft route implementations, deployments, execution traces, shared connections, and the first compiled in-memory route registry are now part of the backend foundation.
 - **Flow editor foundation**: the admin UI includes a Vue Flow-based authoring surface for live route implementations, with starter runtime nodes, branching, connector nodes, and a focused full-editor mode.
 - **Preview/examples engine**: schema-driven sample generation still powers route previews, examples, and legacy mock behavior during the transition to fully live implementations.
-- **Public landing page**: `/` and `/api` render a full-height Mockingbird hero with a Bulma-based quick-reference table, filtering, pagination, request/response example modals for body-based routes, and a light/dark theme toggle.
+- **Public API status page**: `/status` renders a Bulma-based API status surface with dependency-by-dependency health checks, backend-owned route publication-state badges, quick-reference table filtering, pagination, request/response example modals for body-based routes, and a light/dark theme toggle, while `/` and `/api` return no content.
+- **System health endpoint**: `/api/health` is now a system-owned health check that reports overall status plus dependency-by-dependency checks for the API process, database, deployment registry, public reference generation, and OpenAPI generation.
 - **Live OpenAPI**: `/openapi.json` reflects the active route catalog.
 - **Admin API**: bearer-session admin routes manage endpoint definitions, route implementations, deployments, connections, execution history, and dashboard accounts in Postgres.
-- **Seed catalog**: `make seed` loads 15 sample endpoints for local exploration, including device examples that now use UUID-style `deviceId` values and a curated default model enum.
+- **Seed catalog**: `make seed` loads 14 sample endpoints for local exploration, including device examples that now use UUID-style `deviceId` values and a curated default model enum.
 - **Admin UI**: Vue + Vuetify route management now includes dedicated sign-in, protected route-first Overview/Contract/Flow/Test/Deploy surfaces, a separate schema editor page, and live previews of generated/public examples.
 - **Schema-driven generation**: response schemas can mix static values, true random generation, and mocking-style random generation per field via internal `x-mock` extensions, with semantic value types like `id`, `name`, `email`, `price`, and `long_text`.
 - **Vuetify AI support**: the frontend uses `@vuetify/v0` for theme/storage helpers and ships with a repo-level Vuetify MCP config.

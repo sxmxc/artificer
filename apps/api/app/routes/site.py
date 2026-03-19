@@ -8,18 +8,17 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import HTMLResponse
 from sqlmodel import Session
 
-from app.db import get_session
+from app.db import get_session, session_scope
 from app.schemas import PublicReferenceResponse
+from app.services.api_health import build_api_health
 from app.services.public_reference import build_public_reference
 from app.services.public_routes import list_public_endpoints
+from app.time_utils import utc_now
 
 router = APIRouter()
 
 REFRESH_INTERVAL_MS = 12000
-LANDING_STATIC_DIR = Path(__file__).resolve().parents[2] / "static" / "landing"
-LANDING_STATIC_DIR.mkdir(parents=True, exist_ok=True)
 BRAND_ASSET_PATH = Path(__file__).resolve().parents[2] / "static" / "mockingbird-icon.svg"
-SUPPORTED_HERO_EXTENSIONS = (".svg", ".avif", ".webp", ".png", ".jpg", ".jpeg")
 METHOD_ORDER = {
     "GET": 0,
     "POST": 1,
@@ -32,16 +31,16 @@ METHOD_ORDER = {
 BODY_METHODS = {"POST", "PUT", "PATCH"}
 ROWS_PER_PAGE = 8
 
-LANDING_TEMPLATE = """
+STATUS_TEMPLATE = """
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mockingbird | Public API Surface</title>
+    <title>Mockingbird | API Status</title>
     <meta
       name="description"
-      content="Mockingbird is a route-first API platform with a live route catalog and realtime OpenAPI."
+      content="Mockingbird API status, current public route availability, and live reference data."
     />
     <link rel="icon" type="image/svg+xml" href="/static/mockingbird-icon.svg" />
     <link
@@ -576,9 +575,57 @@ LANDING_TEMPLATE = """
         background: rgba(255, 255, 255, 0.06);
       }
 
+      .reference-status.status-success {
+        border-color: rgba(47, 140, 125, 0.2);
+        background: rgba(47, 140, 125, 0.12);
+        color: #1e6b60;
+      }
+
+      .reference-status.status-warning {
+        border-color: rgba(199, 111, 53, 0.18);
+        background: rgba(199, 111, 53, 0.12);
+        color: #9f5324;
+      }
+
+      .reference-status.status-error {
+        border-color: rgba(173, 63, 63, 0.18);
+        background: rgba(173, 63, 63, 0.12);
+        color: #8c3131;
+      }
+
+      .reference-status.status-neutral {
+        border-color: rgba(94, 108, 128, 0.18);
+        background: rgba(94, 108, 128, 0.12);
+        color: #4d5a69;
+      }
+
       [data-theme="dark"] .hero-stat-strong {
         border-color: rgba(75, 167, 212, 0.22);
         background: rgba(75, 167, 212, 0.14);
+      }
+
+      [data-theme="dark"] .reference-status.status-success {
+        border-color: rgba(99, 199, 183, 0.26);
+        background: rgba(99, 199, 183, 0.16);
+        color: #94ece0;
+      }
+
+      [data-theme="dark"] .reference-status.status-warning {
+        border-color: rgba(240, 163, 94, 0.24);
+        background: rgba(240, 163, 94, 0.16);
+        color: #ffd0a1;
+      }
+
+      [data-theme="dark"] .reference-status.status-error {
+        border-color: rgba(255, 107, 107, 0.24);
+        background: rgba(255, 107, 107, 0.16);
+        color: #ffb1b1;
+      }
+
+      [data-theme="dark"] .reference-status.status-neutral {
+        border-color: rgba(163, 178, 194, 0.22);
+        background: rgba(163, 178, 194, 0.16);
+        color: #d5dee7;
       }
 
       .hero-actions {
@@ -591,9 +638,52 @@ LANDING_TEMPLATE = """
         padding-right: 1.35rem;
       }
 
+      .status-shell,
       .reference-shell {
         width: var(--content-width);
         margin: 0 auto;
+      }
+
+      .status-shell {
+        padding: calc(var(--topbar-height) + 44px) 0 24px;
+      }
+
+      .status-summary-grid {
+        margin-top: 8px;
+      }
+
+      .status-dependency-header {
+        margin: 34px 0 18px;
+        align-items: start;
+      }
+
+      .status-card {
+        height: 100%;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        padding: 1.2rem 1.25rem;
+      }
+
+      [data-theme="dark"] .status-card {
+        background: var(--surface-soft);
+      }
+
+      .status-card-value {
+        margin-top: 0.55rem;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 2rem;
+        letter-spacing: -0.04em;
+      }
+
+      .status-card-copy {
+        margin: 0.6rem 0 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .reference-shell {
         padding: 84px 0 96px;
       }
 
@@ -609,6 +699,11 @@ LANDING_TEMPLATE = """
         margin: 10px 0 12px;
         font-size: clamp(2.5rem, 6vw, 4.2rem);
         line-height: 0.94;
+      }
+
+      .section-title-small {
+        font-size: clamp(1.8rem, 4vw, 2.6rem);
+        line-height: 1;
       }
 
       .section-description {
@@ -869,6 +964,12 @@ LANDING_TEMPLATE = """
         color: #4d5a69;
       }
 
+      .endpoint-status.status-warning {
+        background: rgba(199, 111, 53, 0.12);
+        border-color: rgba(199, 111, 53, 0.18);
+        color: #9f5324;
+      }
+
       [data-theme="dark"] .endpoint-status.status-success {
         background: rgba(99, 199, 183, 0.16);
         border-color: rgba(99, 199, 183, 0.26);
@@ -885,6 +986,12 @@ LANDING_TEMPLATE = """
         background: rgba(163, 178, 194, 0.16);
         border-color: rgba(163, 178, 194, 0.22);
         color: #d5dee7;
+      }
+
+      [data-theme="dark"] .endpoint-status.status-warning {
+        background: rgba(240, 163, 94, 0.16);
+        border-color: rgba(240, 163, 94, 0.24);
+        color: #ffd0a1;
       }
 
       .reference-pagination {
@@ -1189,7 +1296,7 @@ LANDING_TEMPLATE = """
                 <span class="brand-mark"><img src="/static/mockingbird-icon.svg" alt="Mockingbird logo" /></span>
                 <span>
                   <span class="brand-title">Mockingbird</span>
-                  <span class="brand-kicker">Public API surface</span>
+                  <span class="brand-kicker">API status</span>
                 </span>
               </a>
 
@@ -1214,7 +1321,9 @@ LANDING_TEMPLATE = """
                     <button class="button is-light nav-link theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
                       Dark mode
                     </button>
+                    <a class="button is-light nav-link" href="#status">Status</a>
                     <a class="button is-light nav-link" href="#reference">Routes</a>
+                    <a class="button is-light nav-link" href="/api/reference.json">Reference JSON</a>
                     <a class="button is-light nav-link" href="/openapi.json">OpenAPI JSON</a>
                     <a class="button is-link hero-link" href="/docs">API docs</a>
                   </div>
@@ -1226,59 +1335,82 @@ LANDING_TEMPLATE = """
       </header>
 
       <main id="top">
-        <section class="hero hero-shell" data-hero-shell>
-          <div class="hero-pin">
-            <div class="hero-stage">
-              <div class="hero-visual">
-                <div class="hero-window" data-hero-window>
-                  __HERO_MEDIA__
-                </div>
-              </div>
+        <section class="section status-shell" id="status">
+          <div class="reference-header">
+            <div>
+              <div class="eyebrow">API status</div>
+              <h1 class="section-title">Mockingbird API status.</h1>
+              <p class="section-description">
+                Dependency health, public contract links, and route publication state in one place.
+              </p>
+            </div>
 
-              <div class="hero-copy">
-                <div class="hero-copy-inner">
-                  <div class="hero-copy-lede">
-                    <div class="eyebrow">Mock API</div>
-                    <h1 class="hero-title">Mock routes with realistic <span class="hero-title-accent">data and no bedside manner.</span></h1>
-                  </div>
-
-                  <div class="hero-copy-body">
-                    <p class="hero-description">
-                      Browse live routes, inspect example payloads, and pull the current OpenAPI spec from one place.
-                    </p>
-                    <p class="hero-warning">
-                      <span class="hero-warning-icon" aria-hidden="true">&#9888;</span>
-                      <span>WARNING: The API may sometimes mock back.</span>
-                    </p>
-
-                    <div class="hero-stat-row">
-                      <span class="hero-stat hero-stat-strong"><span data-endpoint-count>__ENDPOINT_COUNT__</span> live routes</span>
-                    </div>
-
-                    <div class="hero-actions">
-                      <a class="hero-link" href="#reference">Browse routes</a>
-                      <a class="nav-link" href="/openapi.json">OpenAPI JSON</a>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div class="section-actions">
+              <span class="reference-status __INITIAL_HEALTH_TONE__" id="status-health-pill">__INITIAL_HEALTH_STATUS__</span>
+              <span class="reference-status" id="reference-refresh">Updated just now</span>
             </div>
           </div>
+
+          <div class="columns is-variable is-4 is-multiline status-summary-grid">
+            <div class="column is-3-desktop is-6-tablet">
+              <article class="status-card">
+                <div class="eyebrow">Health</div>
+                <div class="status-card-value" data-health-status>__INITIAL_HEALTH_STATUS__</div>
+                <p class="status-card-copy">Overall health is derived from per-dependency checks, not a hard-coded banner.</p>
+              </article>
+            </div>
+
+            <div class="column is-3-desktop is-6-tablet">
+              <article class="status-card">
+                <div class="eyebrow">Public routes</div>
+                <div class="status-card-value"><span data-endpoint-count>__ENDPOINT_COUNT__</span></div>
+                <p class="status-card-copy">Routes currently exposed by the public reference policy.</p>
+              </article>
+            </div>
+
+            <div class="column is-3-desktop is-6-tablet">
+              <article class="status-card">
+                <div class="eyebrow">Live runtime</div>
+                <div class="status-card-value" data-live-route-count>__INITIAL_LIVE_ROUTE_COUNT__</div>
+                <p class="status-card-copy">Published routes currently served by an active live deployment.</p>
+              </article>
+            </div>
+
+            <div class="column is-3-desktop is-6-tablet">
+              <article class="status-card">
+                <div class="eyebrow">Legacy mock</div>
+                <div class="status-card-value" data-legacy-route-count>__INITIAL_LEGACY_ROUTE_COUNT__</div>
+                <p class="status-card-copy">Published routes still served by the schema-driven legacy mock path.</p>
+              </article>
+            </div>
+          </div>
+
+          <div class="reference-header status-dependency-header">
+            <div>
+              <div class="eyebrow">Dependency health</div>
+              <h2 class="section-title section-title-small">Checked dependency by dependency.</h2>
+              <p class="section-description">
+                Each dependency is evaluated independently so unhealthy components surface directly instead of hiding behind a static healthy status.
+              </p>
+            </div>
+          </div>
+
+          <div class="columns is-variable is-4 is-multiline status-summary-grid" id="dependency-health-grid">__INITIAL_HEALTH_ROWS__</div>
         </section>
 
         <section class="section reference-shell" id="reference">
           <div class="reference-header">
             <div>
               <div class="eyebrow">Quick reference</div>
-              <h2 class="section-title">Routes currently live.</h2>
+              <h2 class="section-title">Published routes right now.</h2>
               <p class="section-description">
-                This table reflects the active routes and refreshes every __REFRESH_SECONDS__ seconds.
+                This table reflects the currently published routes, including whether each route is served by the live runtime or the legacy mock path, and refreshes every __REFRESH_SECONDS__ seconds.
               </p>
             </div>
 
             <div class="section-actions">
-              <span class="reference-status" id="reference-refresh">Updated just now</span>
               <a class="nav-link" href="/api/reference.json">Reference JSON</a>
+              <a class="nav-link" href="/openapi.json">OpenAPI JSON</a>
             </div>
           </div>
 
@@ -1332,7 +1464,7 @@ LANDING_TEMPLATE = """
                     <th scope="col">Path</th>
                     <th scope="col">About</th>
                     <th scope="col">Category</th>
-                    <th scope="col">Status</th>
+                    <th scope="col">Published</th>
                     <th scope="col">Examples</th>
                   </tr>
                 </thead>
@@ -1393,9 +1525,10 @@ LANDING_TEMPLATE = """
     </div>
 
     <script id="initial-reference-data" type="application/json">__INITIAL_REFERENCE_JSON__</script>
+    <script id="initial-health-data" type="application/json">__INITIAL_HEALTH_JSON__</script>
     <script>
-      function readInitialReference() {
-        const payloadNode = document.getElementById("initial-reference-data");
+      function readInitialPayload(scriptId, label) {
+        const payloadNode = document.getElementById(scriptId);
         if (!payloadNode) {
           return {};
         }
@@ -1403,17 +1536,16 @@ LANDING_TEMPLATE = """
         try {
           return JSON.parse(payloadNode.textContent || "{}");
         } catch (error) {
-          console.warn("Unable to parse initial reference payload", error);
+          console.warn(`Unable to parse initial ${label} payload`, error);
           return {};
         }
       }
 
       const themeStorageKey = "mockingbird-public-theme";
-      const initialReference = readInitialReference();
+      const initialReference = readInitialPayload("initial-reference-data", "reference");
+      const initialHealth = readInitialPayload("initial-health-data", "health");
       const refreshIntervalMs = __REFRESH_INTERVAL_MS__;
       const rowsPerPage = __ROWS_PER_PAGE__;
-      const heroShell = document.querySelector("[data-hero-shell]");
-      const heroWindow = document.querySelector("[data-hero-window]");
       const themeToggle = document.getElementById("theme-toggle");
       const referenceTableBody = document.getElementById("reference-table-body");
       const methodFilters = document.getElementById("reference-method-filters");
@@ -1436,7 +1568,12 @@ LANDING_TEMPLATE = """
       const payloadClose = document.getElementById("payload-popover-close");
       const navbarBurger = document.querySelector(".navbar-burger");
       const navbarMenu = document.getElementById("homepage-nav");
+      const statusHealthPill = document.getElementById("status-health-pill");
+      const dependencyHealthGrid = document.getElementById("dependency-health-grid");
       const countTargets = Array.from(document.querySelectorAll("[data-endpoint-count]"));
+      const healthStatusTargets = Array.from(document.querySelectorAll("[data-health-status]"));
+      const liveRouteCountTargets = Array.from(document.querySelectorAll("[data-live-route-count]"));
+      const legacyRouteCountTargets = Array.from(document.querySelectorAll("[data-legacy-route-count]"));
       const methodPreference = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"];
       const bodyMethods = new Set(["POST", "PUT", "PATCH"]);
       const filterState = {
@@ -1446,6 +1583,7 @@ LANDING_TEMPLATE = """
         page: 1,
       };
       let currentReference = initialReference;
+      let currentHealth = initialHealth;
       let renderedEndpoints = [];
 
       function escapeHtml(value) {
@@ -1518,18 +1656,104 @@ LANDING_TEMPLATE = """
         return String(endpoint?.category || "uncategorized").trim() || "uncategorized";
       }
 
-      function endpointStatusTone(statusCode) {
-        const parsedStatus = Number(statusCode);
-        if (!Number.isFinite(parsedStatus)) {
-          return "status-neutral";
-        }
-        if (parsedStatus >= 400) {
-          return "status-error";
-        }
-        if (parsedStatus >= 200) {
+      function statusToneClass(tone) {
+        if (tone === "success" || tone === "healthy") {
           return "status-success";
         }
+        if (tone === "warning" || tone === "degraded") {
+          return "status-warning";
+        }
+        if (tone === "error" || tone === "unhealthy") {
+          return "status-error";
+        }
         return "status-neutral";
+      }
+
+      function endpointPublicationStatus(endpoint) {
+        return endpoint?.publication_status || {
+          label: "Unknown",
+          tone: "neutral",
+        };
+      }
+
+      function healthStatusLabel(status) {
+        const normalized = String(status || "").trim().toLowerCase();
+        if (normalized === "healthy") {
+          return "Healthy";
+        }
+        if (normalized === "degraded") {
+          return "Degraded";
+        }
+        if (normalized === "unhealthy") {
+          return "Unhealthy";
+        }
+        return "Unknown";
+      }
+
+      function renderDependencyCards(dependencies) {
+        if (!dependencyHealthGrid) {
+          return;
+        }
+
+        const safeDependencies = Array.isArray(dependencies) ? dependencies : [];
+        if (!safeDependencies.length) {
+          dependencyHealthGrid.innerHTML = `
+            <div class="column is-12">
+              <article class="status-card">
+                <div class="eyebrow">Dependencies</div>
+                <div class="status-card-value">Unavailable</div>
+                <p class="status-card-copy">Dependency health data is currently unavailable.</p>
+              </article>
+            </div>
+          `;
+          return;
+        }
+
+        dependencyHealthGrid.innerHTML = safeDependencies.map((dependency) => {
+          const label = escapeHtml(dependency?.label || dependency?.name || "Dependency");
+          const status = healthStatusLabel(dependency?.status);
+          const toneClass = statusToneClass(dependency?.status);
+          const latencyMarkup = dependency?.latency_ms !== undefined && dependency?.latency_ms !== null
+            ? `<div class="endpoint-inline-tags"><span class="tag is-light is-rounded endpoint-status ${toneClass}">${escapeHtml(`${dependency.latency_ms} ms`)}</span></div>`
+            : "";
+
+          return `
+            <div class="column is-3-desktop is-6-tablet">
+              <article class="status-card">
+                <div class="eyebrow">${label}</div>
+                <div class="status-card-value">${escapeHtml(status)}</div>
+                <p class="status-card-copy">${escapeHtml(dependency?.detail || "No dependency detail available.")}</p>
+                ${latencyMarkup}
+              </article>
+            </div>
+          `;
+        }).join("");
+      }
+
+      function renderHealth(payload) {
+        currentHealth = payload || {};
+
+        const overallStatus = healthStatusLabel(currentHealth?.status);
+        const overallToneClass = statusToneClass(currentHealth?.status);
+        const summary = currentHealth?.summary || {};
+
+        if (statusHealthPill) {
+          statusHealthPill.textContent = overallStatus;
+          statusHealthPill.classList.remove("status-success", "status-warning", "status-error", "status-neutral");
+          statusHealthPill.classList.add(overallToneClass);
+        }
+
+        healthStatusTargets.forEach((node) => {
+          node.textContent = overallStatus;
+        });
+        liveRouteCountTargets.forEach((node) => {
+          node.textContent = String(summary?.published_live_routes ?? 0);
+        });
+        legacyRouteCountTargets.forEach((node) => {
+          node.textContent = String(summary?.legacy_mock_routes ?? 0);
+        });
+
+        renderDependencyCards(currentHealth?.dependencies);
       }
 
       function sortMethods(methods) {
@@ -1638,8 +1862,9 @@ LANDING_TEMPLATE = """
         const tags = Array.isArray(endpoint.tags) ? endpoint.tags : [];
         const method = endpointMethod(endpoint);
         const methodClass = `method-${method.toLowerCase()}`;
-        const statusCode = String(endpoint.success_status_code || 200);
-        const statusTone = endpointStatusTone(statusCode);
+        const publicationStatus = endpointPublicationStatus(endpoint);
+        const publicationLabel = String(publicationStatus?.label || "Unknown");
+        const publicationTone = statusToneClass(publicationStatus?.tone);
         const examplePath = endpoint.example_path || endpoint.path || "/api/example";
         const templatePath =
           endpoint.path && endpoint.path !== examplePath
@@ -1672,7 +1897,7 @@ LANDING_TEMPLATE = """
               <span class="tag is-light is-rounded endpoint-category">${escapeHtml(endpointCategory(endpoint))}</span>
             </td>
             <td>
-              <span class="tag is-light is-rounded endpoint-status ${statusTone}">${escapeHtml(statusCode)}</span>
+              <span class="tag is-light is-rounded endpoint-status ${publicationTone}">${escapeHtml(publicationLabel)}</span>
             </td>
             <td>
               <button type="button" class="button is-small is-info is-light is-rounded sample-trigger" data-sample-index="${index}" aria-haspopup="dialog">
@@ -1769,7 +1994,7 @@ LANDING_TEMPLATE = """
         }
 
         if (!endpoints.length) {
-          referenceTableBody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No public endpoints are enabled yet.</div></td></tr>';
+          referenceTableBody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No published routes are currently available.</div></td></tr>';
           return;
         }
 
@@ -1781,66 +2006,32 @@ LANDING_TEMPLATE = """
         referenceTableBody.innerHTML = visibleEndpoints.map((endpoint, index) => renderEndpointRow(endpoint, index)).join("");
       }
 
-      function syncHeroFrames() {
-        if (!heroShell || !heroWindow) {
-          return;
-        }
-
-        const rect = heroShell.getBoundingClientRect();
-        const scrollDistance = Math.max(heroShell.offsetHeight - window.innerHeight, 1);
-        const revealDistance = Math.max(scrollDistance * 0.84, 1);
-        const rawProgress = Math.min(Math.max(-rect.top / revealDistance, 0), 1);
-        const blendProgress = smoothstep(0.42, 0.92, rawProgress);
-        renderHeroProgress(blendProgress);
-      }
-
-      function smoothstep(start, end, value) {
-        if (start === end) {
-          return value >= end ? 1 : 0;
-        }
-
-        const normalized = Math.min(Math.max((value - start) / (end - start), 0), 1);
-        return normalized * normalized * (3 - 2 * normalized);
-      }
-
-      function renderHeroProgress(progress) {
-        const topOpacity = 1 - progress;
-        const bottomOpacity = progress;
-        heroWindow.style.setProperty("--hero-top-opacity", String(topOpacity));
-        heroWindow.style.setProperty("--hero-bottom-opacity", String(bottomOpacity));
-      }
-
-      let heroTicking = false;
-      function requestHeroSync() {
-        if (heroTicking) {
-          return;
-        }
-
-        heroTicking = true;
-        window.requestAnimationFrame(() => {
-          syncHeroFrames();
-          heroTicking = false;
-        });
-      }
-
-      function handleWindowScroll() {
-        requestHeroSync();
-      }
-
-      async function refreshReference() {
+      async function refreshStatus() {
         try {
-          const response = await fetch("/api/reference.json", {
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          });
+          const [referenceResponse, healthResponse] = await Promise.allSettled([
+            fetch("/api/reference.json", {
+              headers: { Accept: "application/json" },
+              cache: "no-store",
+            }),
+            fetch("/api/health", {
+              headers: { Accept: "application/json" },
+              cache: "no-store",
+            }),
+          ]);
 
-          if (!response.ok) {
-            return;
+          if (referenceResponse.status === "fulfilled" && referenceResponse.value.ok) {
+            renderReference(await referenceResponse.value.json());
           }
 
-          renderReference(await response.json());
+          if (healthResponse.status === "fulfilled") {
+            try {
+              renderHealth(await healthResponse.value.json());
+            } catch (error) {
+              console.warn("Unable to parse health feed", error);
+            }
+          }
         } catch (error) {
-          console.warn("Unable to refresh reference feed", error);
+          console.warn("Unable to refresh status feeds", error);
         }
       }
 
@@ -1943,99 +2134,13 @@ LANDING_TEMPLATE = """
         }
       });
 
+      renderHealth(initialHealth);
       renderReference(initialReference);
-      syncHeroFrames();
-      window.addEventListener("scroll", handleWindowScroll, { passive: true });
-      window.addEventListener("resize", () => {
-        requestHeroSync();
-      });
-      window.setInterval(refreshReference, refreshIntervalMs);
+      window.setInterval(refreshStatus, refreshIntervalMs);
     </script>
   </body>
 </html>
 """
-
-
-def _find_landing_asset(stem: str) -> str | None:
-    for extension in SUPPORTED_HERO_EXTENSIONS:
-        candidate = LANDING_STATIC_DIR / f"{stem}{extension}"
-        if candidate.exists():
-            return f"/static/landing/{candidate.name}"
-    return None
-
-
-def _render_hero_panel(
-    top_source: str | None,
-    bottom_source: str | None,
-    alt_text: str,
-    label: str,
-    *,
-    legacy_split: bool = False,
-) -> str:
-    if top_source and bottom_source:
-        escaped_top_source = html.escape(top_source)
-        escaped_bottom_source = html.escape(bottom_source)
-        escaped_alt = html.escape(alt_text)
-        bottom_image_class = "hero-panel-media hero-panel-image"
-        if legacy_split:
-            bottom_image_class += " hero-panel-image--legacy-bottom"
-        return (
-            f'<figure class="hero-panel hero-panel-top">'
-            f'<div class="hero-panel-frame">'
-            f'<img class="hero-panel-media hero-panel-image" src="{escaped_top_source}" alt="{escaped_alt}" />'
-            f"</div>"
-            f"</figure>"
-            f'<figure class="hero-panel hero-panel-bottom" aria-hidden="true">'
-            f'<div class="hero-panel-frame">'
-            f'<img class="{bottom_image_class}" src="{escaped_bottom_source}" alt="" />'
-            f"</div>"
-            f"</figure>"
-        )
-
-    return """
-      <figure class="hero-panel hero-panel-top">
-        <div class="hero-placeholder">
-          <div class="hero-placeholder-card">
-            <img src="/static/mockingbird-icon.svg" alt="Mockingbird logo" />
-            <div class="hero-placeholder-label">Mockingbird</div>
-            <div class="eyebrow">""" + html.escape(label) + """</div>
-          </div>
-        </div>
-      </figure>
-      <figure class="hero-panel hero-panel-bottom" aria-hidden="true">
-        <div class="hero-placeholder">
-          <div class="hero-placeholder-card">
-            <img src="/static/mockingbird-icon.svg" alt="Mockingbird logo" />
-            <div class="hero-placeholder-label">Mockingbird</div>
-            <div class="eyebrow">""" + html.escape(label) + """</div>
-          </div>
-        </div>
-      </figure>
-    """
-
-
-def _build_hero_media() -> str:
-    split_top_asset = _find_landing_asset("hero-top")
-    split_bottom_asset = _find_landing_asset("hero-bottom")
-    legacy_tall_asset = _find_landing_asset("hero")
-
-    if split_top_asset and split_bottom_asset:
-        top_asset = split_top_asset
-        bottom_asset = split_bottom_asset
-        legacy_split = False
-    else:
-        top_asset = legacy_tall_asset
-        bottom_asset = legacy_tall_asset
-        legacy_split = bool(legacy_tall_asset)
-
-    return _render_hero_panel(
-        top_asset,
-        bottom_asset,
-        "Mockingbird hero artwork",
-        "Public API surface",
-        legacy_split=legacy_split,
-    )
-
 
 def _sort_reference_endpoints(reference_payload: dict) -> list[dict]:
     endpoints = reference_payload.get("endpoints", []) or []
@@ -2078,7 +2183,7 @@ def _render_category_options(reference_payload: dict) -> str:
 def _render_reference_rows(reference_payload: dict, page: int = 1) -> str:
     endpoints = _sort_reference_endpoints(reference_payload)
     if not endpoints:
-        return '<tr><td colspan="6"><div class="empty-state">No public endpoints are enabled yet.</div></td></tr>'
+        return '<tr><td colspan="6"><div class="empty-state">No published routes are currently available.</div></td></tr>'
 
     start = max(page - 1, 0) * ROWS_PER_PAGE
     visible_endpoints = endpoints[start:start + ROWS_PER_PAGE]
@@ -2094,8 +2199,9 @@ def _render_reference_rows(reference_payload: dict, page: int = 1) -> str:
         method_class = f"method-{method.lower()}"
         example_path = str(endpoint.get("example_path") or endpoint.get("path") or "/api/example")
         template_path = str(endpoint.get("path") or "")
-        status_code = str(endpoint.get("success_status_code", 200))
-        status_tone = _status_tone(status_code)
+        publication_status = endpoint.get("publication_status") or {}
+        publication_label = str(publication_status.get("label") or "Unknown")
+        publication_tone = _status_tone(publication_status.get("tone"))
         example_label = "Examples" if method in BODY_METHODS and endpoint.get("sample_request") is not None else "Example"
         path_note = ""
         if template_path and template_path != example_path:
@@ -2122,7 +2228,7 @@ def _render_reference_rows(reference_payload: dict, page: int = 1) -> str:
                 <span class="tag is-light is-rounded endpoint-category">{category}</span>
               </td>
               <td>
-                <span class="tag is-light is-rounded endpoint-status {status_tone}">{status_code}</span>
+                <span class="tag is-light is-rounded endpoint-status {publication_tone}">{publication_label}</span>
               </td>
               <td>
                 <button type="button" class="button is-small is-info is-light is-rounded sample-trigger" data-sample-index="{index}" aria-haspopup="dialog">
@@ -2139,8 +2245,8 @@ def _render_reference_rows(reference_payload: dict, page: int = 1) -> str:
                 summary=html.escape(str(endpoint.get("summary") or endpoint.get("description") or "Live mock route")),
                 tag_markup=tag_markup,
                 category=html.escape(str(endpoint.get("category") or "uncategorized")),
-                status_code=html.escape(status_code),
-                status_tone=html.escape(status_tone),
+                publication_label=html.escape(publication_label),
+                publication_tone=html.escape(publication_tone),
                 example_label=html.escape(example_label),
                 index=index,
             )
@@ -2159,24 +2265,96 @@ def _page_status(reference_payload: dict, page: int = 1) -> str:
 
 
 def _status_tone(status_code: object) -> str:
-    try:
-        parsed_status = int(status_code)
-    except (TypeError, ValueError):
-        return "status-neutral"
-
-    if parsed_status >= 400:
-        return "status-error"
-    if parsed_status >= 200:
+    normalized = str(status_code or "").strip().lower()
+    if normalized in {"success", "healthy"}:
         return "status-success"
+    if normalized in {"warning", "degraded"}:
+        return "status-warning"
+    if normalized in {"error", "unhealthy"}:
+        return "status-error"
     return "status-neutral"
+
+
+def _health_status_label(status: object) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized == "healthy":
+        return "Healthy"
+    if normalized == "degraded":
+        return "Degraded"
+    if normalized == "unhealthy":
+        return "Unhealthy"
+    return "Unknown"
+
+
+def _render_health_rows(health_payload: dict) -> str:
+    dependencies = health_payload.get("dependencies", []) or []
+    if not dependencies:
+        return (
+            '<div class="column is-12"><article class="status-card"><div class="eyebrow">Dependencies</div>'
+            '<div class="status-card-value">Unavailable</div>'
+            '<p class="status-card-copy">Dependency health data is currently unavailable.</p></article></div>'
+        )
+
+    rows: list[str] = []
+    for dependency in dependencies:
+        label = html.escape(str(dependency.get("label") or dependency.get("name") or "Dependency"))
+        status_label = html.escape(_health_status_label(dependency.get("status")))
+        status_tone = html.escape(_status_tone(dependency.get("status")))
+        detail = html.escape(str(dependency.get("detail") or "No dependency detail available."))
+        latency_ms = dependency.get("latency_ms")
+        latency_markup = ""
+        if latency_ms is not None:
+            latency_markup = (
+                '<div class="endpoint-inline-tags">'
+                f'<span class="tag is-light is-rounded endpoint-status {status_tone}">{html.escape(str(latency_ms))} ms</span>'
+                "</div>"
+            )
+
+        rows.append(
+            """
+            <div class="column is-3-desktop is-6-tablet">
+              <article class="status-card">
+                <div class="eyebrow">{label}</div>
+                <div class="status-card-value">{status_label}</div>
+                <p class="status-card-copy">{detail}</p>
+                {latency_markup}
+              </article>
+            </div>
+            """.format(
+                label=label,
+                status_label=status_label,
+                detail=detail,
+                latency_markup=latency_markup,
+            )
+        )
+
+    return "\n".join(rows)
 
 
 def _build_reference(session: Session) -> dict:
     endpoints = list_public_endpoints(session, limit=1000)
-    payload = build_public_reference(endpoints)
+    payload = build_public_reference(endpoints, session=session)
     response = PublicReferenceResponse(**payload).model_dump()
     response["endpoints"] = _sort_reference_endpoints(response)
     return response
+
+
+def _empty_reference_payload() -> dict:
+    return PublicReferenceResponse(
+        product_name="Mockingbird",
+        description="Public reference data is temporarily unavailable.",
+        endpoint_count=0,
+        refreshed_at=utc_now(),
+        endpoints=[],
+    ).model_dump()
+
+
+def _build_reference_safely() -> dict:
+    try:
+        with session_scope() as session:
+            return _build_reference(session)
+    except Exception:
+        return _empty_reference_payload()
 
 
 def _json_for_script_tag(value: object) -> str:
@@ -2190,29 +2368,50 @@ def _json_for_script_tag(value: object) -> str:
     )
 
 
-def _render_landing_page(reference_payload: dict) -> str:
+def _render_status_page(reference_payload: dict, health_payload: dict) -> str:
     total_pages = _page_count(reference_payload)
+    health_label = _health_status_label(health_payload.get("status"))
+    health_tone = _status_tone(health_payload.get("status"))
+    summary = health_payload.get("summary", {}) or {}
     return (
-        LANDING_TEMPLATE.replace("__HERO_MEDIA__", _build_hero_media())
-        .replace("__INITIAL_REFERENCE_JSON__", _json_for_script_tag(reference_payload))
+        STATUS_TEMPLATE.replace("__INITIAL_REFERENCE_JSON__", _json_for_script_tag(reference_payload))
+        .replace("__INITIAL_HEALTH_JSON__", _json_for_script_tag(health_payload))
         .replace("__INITIAL_METHOD_FILTERS__", _render_method_filters(reference_payload))
         .replace("__INITIAL_CATEGORY_OPTIONS__", _render_category_options(reference_payload))
         .replace("__INITIAL_ROWS__", _render_reference_rows(reference_payload))
+        .replace("__INITIAL_HEALTH_ROWS__", _render_health_rows(health_payload))
         .replace("__INITIAL_PAGE_STATUS__", _page_status(reference_payload))
         .replace("__INITIAL_PREV_DISABLED__", "disabled aria-disabled=\"true\"")
         .replace("__INITIAL_NEXT_DISABLED__", "disabled aria-disabled=\"true\"" if total_pages <= 1 else "")
         .replace("__REFRESH_INTERVAL_MS__", str(REFRESH_INTERVAL_MS))
         .replace("__ROWS_PER_PAGE__", str(ROWS_PER_PAGE))
         .replace("__REFRESH_SECONDS__", str(REFRESH_INTERVAL_MS // 1000))
+        .replace("__INITIAL_HEALTH_STATUS__", health_label)
+        .replace("__INITIAL_HEALTH_TONE__", health_tone)
+        .replace("__INITIAL_LIVE_ROUTE_COUNT__", str(summary.get("published_live_routes", 0)))
+        .replace("__INITIAL_LEGACY_ROUTE_COUNT__", str(summary.get("legacy_mock_routes", 0)))
         .replace("__ENDPOINT_COUNT__", str(reference_payload.get("endpoint_count", 0)))
     )
 
 
 @router.get("/", include_in_schema=False)
+@router.head("/", include_in_schema=False)
+def root_page() -> Response:
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/api", include_in_schema=False)
-def landing_page(session: Session = Depends(get_session)) -> HTMLResponse:
-    reference_payload = _build_reference(session)
-    return HTMLResponse(content=_render_landing_page(reference_payload), headers={"Cache-Control": "no-store"})
+@router.head("/api", include_in_schema=False)
+def api_root_page() -> Response:
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/status", include_in_schema=False)
+@router.head("/status", include_in_schema=False)
+def status_page() -> HTMLResponse:
+    reference_payload = _build_reference_safely()
+    health_payload = build_api_health().model_dump()
+    return HTMLResponse(content=_render_status_page(reference_payload, health_payload), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/assets/mockingbird-mark.svg", include_in_schema=False)

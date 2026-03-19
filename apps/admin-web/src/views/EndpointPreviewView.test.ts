@@ -73,6 +73,7 @@ function createRouterInstance() {
 }
 
 function createEndpoint(overrides: Partial<Endpoint> = {}): Endpoint {
+  const enabled = overrides.enabled ?? true;
   return {
     id: 1,
     name: "Inspect order",
@@ -83,7 +84,7 @@ function createEndpoint(overrides: Partial<Endpoint> = {}): Endpoint {
     tags: ["orders"],
     summary: null,
     description: null,
-    enabled: true,
+    enabled,
     auth_mode: "none",
     request_schema: {
       type: "object",
@@ -119,6 +120,22 @@ function createEndpoint(overrides: Partial<Endpoint> = {}): Endpoint {
     seed_key: "seed-1",
     created_at: "2026-03-18T00:00:00Z",
     updated_at: "2026-03-18T00:00:00Z",
+    publication_status: overrides.publication_status ?? {
+      code: enabled ? "published_live" : "disabled",
+      label: enabled ? "Published live" : "Disabled",
+      tone: enabled ? "success" : "error",
+      enabled,
+      is_public: enabled,
+      is_live: enabled,
+      uses_legacy_mock: false,
+      has_saved_implementation: true,
+      has_runtime_history: true,
+      has_deployment_history: true,
+      has_active_deployment: enabled,
+      active_deployment_environment: enabled ? "production" : null,
+      active_implementation_id: enabled ? 4 : null,
+      active_deployment_id: enabled ? 4 : null,
+    },
     ...overrides,
   };
 }
@@ -287,14 +304,31 @@ describe("EndpointPreviewView", () => {
   });
 
   it("keeps contract preview available when a saved draft has no active deployment", async () => {
+    vi.mocked(getEndpoint).mockResolvedValue(createEndpoint({
+      publication_status: {
+        code: "draft_only",
+        label: "Draft only",
+        tone: "warning",
+        enabled: true,
+        is_public: false,
+        is_live: false,
+        uses_legacy_mock: false,
+        has_saved_implementation: true,
+        has_runtime_history: true,
+        has_deployment_history: false,
+        has_active_deployment: false,
+        active_deployment_environment: null,
+        active_implementation_id: null,
+        active_deployment_id: null,
+      },
+    }));
     vi.mocked(getCurrentRouteImplementation).mockResolvedValue(createImplementation({ id: 7, version: 2 }));
     vi.mocked(listRouteDeployments).mockResolvedValue([]);
 
     const view = await renderView();
     await flushPromises();
 
-    expect(screen.getAllByText("Not live").length).toBeGreaterThan(0);
-    expect(screen.getByText("Draft only")).toBeInTheDocument();
+    expect(screen.getAllByText("Draft only").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
         "This route has a saved flow draft but no active deployment. Live/public requests return 404 until you publish a flow implementation.",

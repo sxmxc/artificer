@@ -40,6 +40,7 @@ import type {
   RouteImplementation,
 } from "../types/endpoints";
 import { normalizeRouteFlowDefinition, serializeRouteFlowDefinition } from "../utils/routeFlow";
+import { resolveRoutePublicationStatus, routePublicationColor } from "../utils/routePublicationStatus";
 import { buildRouteTestState } from "../utils/routeTestState";
 import {
   buildPayload,
@@ -136,6 +137,9 @@ const duplicateSourceId = computed(() => {
 
 const selectedEndpoint = computed(() =>
   endpointId.value ? endpoints.value.find((endpoint) => endpoint.id === endpointId.value) ?? null : null,
+);
+const selectedPublicationStatus = computed(() =>
+  selectedEndpoint.value ? resolveRoutePublicationStatus(selectedEndpoint.value) : null,
 );
 const selectedEndpointSyncKey = computed(() =>
   selectedEndpoint.value ? `${selectedEndpoint.value.id}:${selectedEndpoint.value.updated_at}` : null,
@@ -1273,12 +1277,12 @@ const activeTitle = computed(() => {
                         </v-chip>
                         <v-chip
                           v-if="selectedEndpoint"
-                          :color="selectedEndpoint.enabled ? 'accent' : 'error'"
+                          :color="selectedPublicationStatus ? routePublicationColor(selectedPublicationStatus) : 'secondary'"
                           label
                           size="small"
                           variant="tonal"
                         >
-                          {{ selectedEndpoint.enabled ? "Live" : "Disabled" }}
+                          {{ selectedPublicationStatus?.label ?? "Unknown" }}
                         </v-chip>
                         <v-chip v-if="selectedEndpoint?.category" color="secondary" label size="small" variant="tonal">
                           {{ selectedEndpoint.category }}

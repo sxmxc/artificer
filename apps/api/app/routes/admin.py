@@ -90,6 +90,11 @@ from app.services.route_runtime import (
     update_connection,
     upsert_route_implementation,
 )
+from app.services.route_status import (
+    build_endpoint_read,
+    build_route_publication_status,
+    load_route_publication_facts,
+)
 from app.services.schema_contract import (
     normalize_request_schema_contract,
     normalize_schema_for_builder,
@@ -109,6 +114,28 @@ class _EndpointImportPlanAction:
     action: str
     endpoint: EndpointDefinition | None = None
     payload: dict[str, Any] | None = None
+
+
+def _build_endpoint_reads(session: Session, endpoints: list[EndpointDefinition]) -> list[EndpointRead]:
+    publication_facts = load_route_publication_facts(
+        session,
+        [int(endpoint.id) for endpoint in endpoints if endpoint.id is not None],
+    )
+    return [
+        build_endpoint_read(
+            endpoint,
+            build_route_publication_status(endpoint, publication_facts.get(int(endpoint.id or 0))),
+        )
+        for endpoint in endpoints
+    ]
+
+
+def _build_single_endpoint_read(session: Session, endpoint: EndpointDefinition) -> EndpointRead:
+    publication_facts = load_route_publication_facts(session, [int(endpoint.id or 0)])
+    return build_endpoint_read(
+        endpoint,
+        build_route_publication_status(endpoint, publication_facts.get(int(endpoint.id or 0))),
+    )
 
 
 def _normalize_request_schema(schema: dict | None, *, path: str | None = None) -> dict:
@@ -751,7 +778,7 @@ def list_all_endpoints(
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_route_read_access),
 ) -> list[EndpointRead]:
-    return list_endpoints(session)
+    return _build_endpoint_reads(session, list_endpoints(session))
 
 
 @router.get("/endpoints/export", response_model=EndpointBundle)
@@ -798,7 +825,7 @@ def read_endpoint(
     endpoint = get_endpoint(session, endpoint_id)
     if not endpoint:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found")
-    return endpoint
+    return _build_single_endpoint_read(session, endpoint)
 
 
 @router.post("/endpoints", response_model=EndpointRead, status_code=status.HTTP_201_CREATED)
@@ -823,7 +850,7 @@ def create_new_endpoint(
     payload = EndpointCreate(**normalized_fields)
     endpoint = create_endpoint(session, payload)
     invalidate_deployment_registry()
-    return endpoint
+    return _build_single_endpoint_read(session, endpoint)
 
 
 @router.put("/endpoints/{endpoint_id}", response_model=EndpointRead)
@@ -854,7 +881,7 @@ def update_existing_endpoint(
         )
     updated_endpoint = update_endpoint(session, endpoint, EndpointUpdate(**updates))
     invalidate_deployment_registry()
-    return updated_endpoint
+    return _build_single_endpoint_read(session, updated_endpoint)
 
 
 @router.delete("/endpoints/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -70,7 +70,7 @@ Already shipped:
 
 Still transitional:
 - the public runtime still falls back to the legacy schema-driven mock path for routes that have not yet entered the live-runtime lifecycle
-- the new Vue Flow editor now supports branching, but it still leans on raw JSON entry instead of richer drag/drop data mapping, pinned sample data, or node-level input/output previews
+- the new Vue Flow editor now supports branching plus pinned node-level sample data/preview inspection, but it still leans on raw JSON entry instead of richer drag/drop data mapping and cursor-aware helper insertion
 - OpenAPI and `/api/reference.json` now follow the shared public-route policy for runtime-managed routes, but legacy-only routes still remain public until the product fully cuts over to deployment-only publishing
 
 ## Recommended Implementation Order
@@ -78,8 +78,8 @@ Still transitional:
 ### 1. Improve operator surfaces
 
 After the above:
+- richer data mapping in the Flow designer
 - connection management UI
-- richer data mapping and pinned sample-data tooling in the Flow designer
 - execution drill-down
 - replay/debug tooling
 - deployment promotion polish

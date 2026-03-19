@@ -1,5 +1,10 @@
 # DECISIONS
 
+## 2026-03-19: Flow sample-data visibility takes priority over connection-management UI
+- **Workflow priority**: Pull node-level sample-data visibility ahead of the placeholder connection-management card, because the more urgent operator failure is understanding how request-contract inputs become deployed responses in Flow.
+- **Mental model**: Treat `API Trigger` as the request-contract entrypoint and `Set Response` as the live response exit, while keeping `response_schema` as the separate contract-preview source used by the `Test` journey.
+- **Inspector UX**: Show each selected node's in-scope sample data, inferred output sample, and an explicit `Set Response` versus `response_schema` comparison so operators can see when deploys would return something different from the contract preview before they publish.
+
 ## 2026-03-19: Bespoke editor drags now use Pragmatic Drag and Drop
 - **Library choice**: Use Atlassian's Pragmatic Drag and Drop package for the schema editor and Flow palette surfaces instead of continuing to hand-wire native `dragstart` / `drop` / `dataTransfer`.
 - **Shared interaction model**: Wrap the library in a small frontend utility so schema palette copies, schema-node moves, and Flow palette-to-canvas drops all share the same drag-preview and drop-target semantics without duplicating low-level setup in each component.

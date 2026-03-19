@@ -597,6 +597,10 @@ const selectedNodeInspection = computed(() => {
 
   return flowInspectionSnapshot.value.nodesById[selectedCanvasNode.value.id] ?? null;
 });
+const selectedNodeOnSamplePath = computed(() => {
+  const nodeId = selectedCanvasNode.value?.id;
+  return nodeId ? flowInspectionSnapshot.value.executedNodeIds.includes(nodeId) : false;
+});
 const flowResponseComparison = computed(() => {
   const responseNode = currentFlowDefinition.value.nodes.find((node) => node.type === "set_response");
   if (!responseNode) {
@@ -2107,6 +2111,14 @@ onBeforeUnmount(() => {
                           <li v-for="note in selectedNodeInspection.notes" :key="note">{{ note }}</li>
                         </ul>
                       </div>
+                    </v-sheet>
+
+                    <v-sheet v-else-if="selectedCanvasNode && !selectedNodeOnSamplePath" class="route-flow-editor__subpanel pa-4" rounded="xl">
+                      <div class="route-flow-editor__panel-eyebrow">Flow sample</div>
+                      <v-alert class="mt-3" border="start" color="info" variant="tonal">
+                        The current generated request sample does not traverse this node. Flow samples follow the executable branch
+                        path from <strong>API Trigger</strong>, so sibling-branch state is intentionally excluded here.
+                      </v-alert>
                     </v-sheet>
 
                     <v-sheet class="route-flow-editor__subpanel pa-4" rounded="xl">

@@ -50,6 +50,7 @@ export interface RouteFlowInspectionSnapshot {
   contractResponseSample: JsonValue | null;
   contractResponseShape: string;
   contractResponseJson: string | null;
+  executedNodeIds: string[];
   generatedRequestSample: {
     body: JsonValue | null;
     path: Record<string, string>;
@@ -376,7 +377,7 @@ function evaluateIfCondition(node: RouteFlowNode, context: FlowRuntimeContext, t
     matched = !logicValueIsEmpty(left);
   } else if (operator === "contains") {
     if (typeof left === "string") {
-      matched = stringifyTemplateValue(right) !== "" && left.includes(stringifyTemplateValue(right));
+      matched = left.includes(stringifyTemplateValue(right));
     } else if (Array.isArray(left)) {
       matched = left.some((item) => logicValuesEqual(item, right));
     } else if (isJsonObject(left)) {
@@ -598,63 +599,45 @@ function buildScopeEntries(context: FlowRuntimeContext): RouteFlowInspectionScop
   return entries;
 }
 
-function nodeEvaluationOrder(definition: RouteFlowDefinition): RouteFlowNode[] {
-  const nodesById = new Map(definition.nodes.map((node) => [node.id, node]));
-  const indegree = new Map(definition.nodes.map((node) => [node.id, 0]));
+function outgoingEdgesForNode(definition: RouteFlowDefinition, nodeId: string) {
+  return definition.edges.filter((edge) => edge.source === nodeId);
+}
 
-  for (const edge of definition.edges) {
-    if (!nodesById.has(edge.source) || !nodesById.has(edge.target)) {
+function singleNextEdge(definition: RouteFlowDefinition, nodeId: string) {
+  const outgoingEdges = outgoingEdgesForNode(definition, nodeId);
+  return outgoingEdges.length === 1 ? outgoingEdges[0] : null;
+}
+
+function selectIfBranchEdge(definition: RouteFlowDefinition, nodeId: string, matched: boolean) {
+  const branch = matched ? "true" : "false";
+  return (
+    outgoingEdgesForNode(definition, nodeId).find(
+      (edge) => String(edge.extra?.branch ?? "").trim().toLowerCase() === branch,
+    ) ?? null
+  );
+}
+
+function selectSwitchEdge(definition: RouteFlowDefinition, nodeId: string, value: JsonValue) {
+  let defaultEdge: RouteFlowDefinition["edges"][number] | null = null;
+
+  for (const edge of outgoingEdgesForNode(definition, nodeId)) {
+    const branch = String(edge.extra?.branch ?? "").trim().toLowerCase();
+    if (branch === "default") {
+      defaultEdge = edge;
       continue;
     }
-    indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
-  }
-
-  const queue = definition.nodes
-    .filter((node) => (indegree.get(node.id) ?? 0) === 0)
-    .sort((left, right) => {
-      if (left.type === "api_trigger") {
-        return -1;
-      }
-      if (right.type === "api_trigger") {
-        return 1;
-      }
-      return definition.nodes.findIndex((node) => node.id === left.id) - definition.nodes.findIndex((node) => node.id === right.id);
-    });
-
-  const ordered: RouteFlowNode[] = [];
-  const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const node = queue.shift();
-    if (!node || visited.has(node.id)) {
-      continue;
-    }
-
-    visited.add(node.id);
-    ordered.push(node);
-
-    for (const edge of definition.edges.filter((candidate) => candidate.source === node.id)) {
-      if (!nodesById.has(edge.target)) {
-        continue;
-      }
-      const nextDegree = (indegree.get(edge.target) ?? 0) - 1;
-      indegree.set(edge.target, nextDegree);
-      if (nextDegree === 0) {
-        const nextNode = nodesById.get(edge.target);
-        if (nextNode) {
-          queue.push(nextNode);
-        }
-      }
+    if (branch === "case" && logicValuesEqual(value, toJsonValue(edge.extra?.case_value))) {
+      return {
+        branch: "case" as const,
+        edge,
+      };
     }
   }
 
-  for (const node of definition.nodes) {
-    if (!visited.has(node.id)) {
-      ordered.push(node);
-    }
-  }
-
-  return ordered;
+  return {
+    branch: "default" as const,
+    edge: defaultEdge,
+  };
 }
 
 function nodeOutputTitle(node: RouteFlowNode): string {
@@ -701,8 +684,20 @@ export function buildRouteFlowInspectionSnapshot(
   const runtimeContext = createFlowRuntimeContext(routeContext);
   const contractResponseSample = toJsonValue(buildSchemaSample(routeContext.responseSchema));
   const nodesById: Record<string, RouteFlowNodeInspection> = {};
+  const availableNodesById = new Map(definition.nodes.map((node) => [node.id, node]));
+  const executedNodeIds: string[] = [];
+  const visitedNodeIds = new Set<string>();
+  let currentNodeId: string | null =
+    definition.nodes.find((node) => node.type === "api_trigger")?.id ?? definition.nodes[0]?.id ?? null;
 
-  for (const node of nodeEvaluationOrder(definition)) {
+  while (currentNodeId && !visitedNodeIds.has(currentNodeId)) {
+    const node = availableNodesById.get(currentNodeId);
+    if (!node) {
+      break;
+    }
+
+    visitedNodeIds.add(currentNodeId);
+    executedNodeIds.push(node.id);
     const tracker: ResolutionTracker = {
       unresolvedRefs: new Set<string>(),
     };
@@ -710,6 +705,7 @@ export function buildRouteFlowInspectionSnapshot(
     const inputStateCount = Object.keys(runtimeContext.state).length;
     const notes: string[] = [];
     let outputSample: JsonValue = null;
+    let nextNodeId: string | null = null;
 
     if (node.type === "api_trigger") {
       outputSample = {
@@ -721,30 +717,45 @@ export function buildRouteFlowInspectionSnapshot(
         route: cloneJsonValue(runtimeContext.route),
       };
       runtimeContext.state[node.id] = cloneJsonValue(outputSample);
+      nextNodeId = singleNextEdge(definition, node.id)?.target ?? null;
     } else if (node.type === "validate_request") {
       outputSample = {
         valid: true,
       };
       runtimeContext.state[node.id] = cloneJsonValue(outputSample);
+      nextNodeId = singleNextEdge(definition, node.id)?.target ?? null;
     } else if (node.type === "transform") {
       outputSample = renderTemplate(node.config.output, runtimeContext, tracker);
       runtimeContext.state[node.id] = cloneJsonValue(outputSample);
+      nextNodeId = singleNextEdge(definition, node.id)?.target ?? null;
     } else if (node.type === "if_condition") {
       outputSample = evaluateIfCondition(node, runtimeContext, tracker);
       runtimeContext.state[node.id] = cloneJsonValue(outputSample);
+      nextNodeId = selectIfBranchEdge(
+        definition,
+        node.id,
+        isJsonObject(outputSample) ? Boolean(outputSample.matched) : false,
+      )?.target ?? null;
     } else if (node.type === "switch") {
       outputSample = evaluateSwitch(node, definition, runtimeContext, tracker);
       runtimeContext.state[node.id] = cloneJsonValue(outputSample);
+      nextNodeId = selectSwitchEdge(
+        definition,
+        node.id,
+        isJsonObject(outputSample) ? (outputSample.value ?? null) : null,
+      ).edge?.target ?? null;
     } else if (node.type === "http_request") {
       const result = evaluateHttpRequest(node, availableConnections, runtimeContext, tracker);
       outputSample = result.output;
       notes.push(...result.notes);
       runtimeContext.state[node.id] = cloneJsonValue(outputSample);
+      nextNodeId = singleNextEdge(definition, node.id)?.target ?? null;
     } else if (node.type === "postgres_query") {
       const result = evaluatePostgresQuery(node, availableConnections, runtimeContext, tracker);
       outputSample = result.output;
       notes.push(...result.notes);
       runtimeContext.state[node.id] = cloneJsonValue(outputSample);
+      nextNodeId = singleNextEdge(definition, node.id)?.target ?? null;
     } else if (node.type === "set_response") {
       outputSample = {
         body: renderTemplate(node.config.body, runtimeContext, tracker),
@@ -807,12 +818,15 @@ export function buildRouteFlowInspectionSnapshot(
       unresolvedRefs,
       notes,
     };
+
+    currentNodeId = nextNodeId;
   }
 
   return {
     contractResponseSample,
     contractResponseShape: describeJsonShape(contractResponseSample),
     contractResponseJson: contractResponseSample === null ? null : stringifyJson(contractResponseSample),
+    executedNodeIds,
     generatedRequestSample: {
       body: cloneJsonValue(runtimeContext.request.body),
       path: cloneJsonValue(runtimeContext.request.path),

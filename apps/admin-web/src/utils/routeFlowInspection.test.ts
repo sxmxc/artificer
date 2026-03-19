@@ -246,4 +246,117 @@ describe("routeFlowInspection", () => {
       },
     });
   });
+
+  it("only keeps state from the executable branch path when branches converge", () => {
+    const definition: RouteFlowDefinition = {
+      schema_version: 1,
+      nodes: [
+        { id: "trigger", type: "api_trigger", name: "API Trigger", config: {} },
+        {
+          id: "if-1",
+          type: "if_condition",
+          name: "If",
+          config: {
+            left: { $ref: "request.query.mode" },
+            operator: "equals",
+            right: "simple",
+          },
+        },
+        {
+          id: "transform-true",
+          type: "transform",
+          name: "Transform true",
+          config: {
+            output: {
+              branch: "true",
+            },
+          },
+        },
+        {
+          id: "transform-false",
+          type: "transform",
+          name: "Transform false",
+          config: {
+            output: {
+              branch: "false",
+            },
+          },
+        },
+        {
+          id: "response",
+          type: "set_response",
+          name: "Set Response",
+          config: {
+            status_code: 200,
+            body: {
+              active: { $ref: "state.transform-true" },
+              inactive: { $ref: "state.transform-false" },
+            },
+          },
+        },
+      ],
+      edges: [
+        { source: "trigger", target: "if-1" },
+        { source: "if-1", target: "transform-true", extra: { branch: "true" } },
+        { source: "if-1", target: "transform-false", extra: { branch: "false" } },
+        { source: "transform-true", target: "response" },
+        { source: "transform-false", target: "response" },
+      ],
+    };
+
+    const snapshot = buildRouteFlowInspectionSnapshot(definition, createRouteContext());
+
+    expect(snapshot.executedNodeIds).toEqual(["trigger", "if-1", "transform-true", "response"]);
+    expect(snapshot.nodesById.response.scopeEntries.map((entry) => entry.refPath)).toEqual([
+      "route",
+      "request.path",
+      "request.query",
+      "request.body",
+      "state.trigger",
+      "state.if-1",
+      "state.transform-true",
+    ]);
+    expect(snapshot.nodesById.response.outputSample).toEqual({
+      body: {
+        active: {
+          branch: "true",
+        },
+        inactive: null,
+      },
+      status_code: 200,
+    });
+    expect(snapshot.nodesById.response.unresolvedRefs).toContain("state.transform-false");
+    expect(snapshot.nodesById["transform-false"]).toBeUndefined();
+  });
+
+  it("matches backend contains semantics when the right operand resolves to an empty string", () => {
+    const definition: RouteFlowDefinition = {
+      schema_version: 1,
+      nodes: [
+        { id: "trigger", type: "api_trigger", name: "API Trigger", config: {} },
+        {
+          id: "if-1",
+          type: "if_condition",
+          name: "If",
+          config: {
+            left: { $ref: "request.query.mode" },
+            operator: "contains",
+            right: { $ref: "request.query.missing" },
+          },
+        },
+      ],
+      edges: [
+        { source: "trigger", target: "if-1" },
+      ],
+    };
+
+    const snapshot = buildRouteFlowInspectionSnapshot(definition, createRouteContext());
+
+    expect(snapshot.nodesById["if-1"].outputSample).toMatchObject({
+      matched: true,
+      branch: "true",
+      left: "simple",
+      right: null,
+    });
+  });
 });

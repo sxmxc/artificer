@@ -113,6 +113,8 @@ const connectionManagerError = ref<string | null>(null);
 
 let catalogRefreshTimer: number | null = null;
 let pendingCatalogRequest: Promise<void> | null = null;
+// Ignore out-of-order execution-detail responses when operators switch runs quickly.
+let executionDetailRequestToken = 0;
 
 const importModeOptions: Array<{ title: string; value: EndpointImportMode }> = [
   {
@@ -690,6 +692,7 @@ async function loadRouteRuntimeScaffolding(endpointId: number): Promise<void> {
   isLoadingImplementation.value = true;
   isLoadingDeployments.value = true;
   isLoadingExecutions.value = true;
+  executionDetailRequestToken += 1;
   isLoadingExecutionDetail.value = false;
   selectedExecutionId.value = null;
   selectedExecutionDetail.value = null;
@@ -742,10 +745,21 @@ async function selectExecution(executionId: number): Promise<void> {
   selectedExecutionDetail.value = null;
   executionDetailError.value = null;
   isLoadingExecutionDetail.value = true;
+  const requestToken = ++executionDetailRequestToken;
 
   try {
-    selectedExecutionDetail.value = await getExecution(executionId, auth.session.value);
+    const executionDetail = await getExecution(executionId, auth.session.value);
+
+    if (requestToken !== executionDetailRequestToken || selectedExecutionId.value !== executionId) {
+      return;
+    }
+
+    selectedExecutionDetail.value = executionDetail;
   } catch (error) {
+    if (requestToken !== executionDetailRequestToken || selectedExecutionId.value !== executionId) {
+      return;
+    }
+
     if (error instanceof AdminApiError && error.status === 401) {
       void auth.logout("Your admin session expired. Sign in again to inspect route execution details.");
       void router.push({ name: "login" });
@@ -754,7 +768,9 @@ async function selectExecution(executionId: number): Promise<void> {
 
     executionDetailError.value = describeAdminError(error, "Unable to load execution details.");
   } finally {
-    isLoadingExecutionDetail.value = false;
+    if (requestToken === executionDetailRequestToken && selectedExecutionId.value === executionId) {
+      isLoadingExecutionDetail.value = false;
+    }
   }
 }
 

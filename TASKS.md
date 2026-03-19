@@ -17,6 +17,7 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Ignore stale execution-detail responses when operators change selected runs before earlier requests finish
 - [x] Add execution drill-down and replay tooling on top of the new `ExecutionRun` / `ExecutionStep` records
 - [x] Redirect the API root `/` to `/status` while keeping `/api` empty
 - [x] Standardize the platform brand around Artificer, Artificer API, and Artificer Studio, including the shared `icon.svg` logo asset and renamed repo/image references

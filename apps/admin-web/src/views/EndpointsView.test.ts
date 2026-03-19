@@ -373,6 +373,21 @@ function createConnection(id: number): Connection {
   };
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 async function renderView(path: string, mode: "browse" | "create" | "edit") {
   const router = createRouterInstance();
   await router.push(path);
@@ -643,6 +658,83 @@ describe("EndpointsView", () => {
         replayBodyCaptured: "0",
         replay_path_orderId: "ord-42",
         replay_query_include: "items",
+      },
+    });
+  });
+
+  it("ignores stale execution-detail responses after a newer run selection", async () => {
+    vi.mocked(listEndpoints).mockResolvedValue([createEndpoint(1, { name: "List users" })]);
+    vi.mocked(listExecutions).mockResolvedValue([
+      createExecution(1),
+      {
+        ...createExecution(1),
+        id: 2,
+        deployment_id: 2,
+        implementation_id: 2,
+        path: "/api/resource-1/replay",
+      },
+    ]);
+
+    const firstRequest = createDeferred<ExecutionRunDetail>();
+    const secondRequest = createDeferred<ExecutionRunDetail>();
+    vi.mocked(getExecution).mockImplementation((executionId: number) => {
+      if (executionId === 1) {
+        return firstRequest.promise;
+      }
+      if (executionId === 2) {
+        return secondRequest.promise;
+      }
+
+      return Promise.reject(new Error(`Unexpected execution id ${executionId}`));
+    });
+
+    const secondDetail: ExecutionRunDetail = {
+      ...createExecutionDetail(1),
+      id: 2,
+      deployment_id: 2,
+      implementation_id: 2,
+      path: "/api/resource-1/replay",
+      request_data: {
+        path_parameters: {
+          orderId: "ord-99",
+        },
+        query_parameters: {
+          include: "payments",
+        },
+        body_present: false,
+      },
+    };
+
+    const { router } = await renderView("/endpoints/1?tab=test", "edit");
+    await flushPromises();
+    const pushSpy = vi.spyOn(router, "push");
+
+    await fireEvent.click(screen.getByRole("button", { name: "Inspect run 1" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Inspect run 2" }));
+
+    secondRequest.resolve(secondDetail);
+    await flushPromises();
+
+    expect(screen.getByText(/Run #2/)).toBeInTheDocument();
+    expect(screen.getByText("This run did not include a request body.")).toBeInTheDocument();
+
+    firstRequest.resolve(createExecutionDetail(1));
+    await flushPromises();
+
+    expect(screen.getByText(/Run #2/)).toBeInTheDocument();
+    expect(screen.queryByText(/Run #1/)).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole("button", { name: "Replay in tester" }));
+    await flushPromises();
+
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: "endpoint-preview",
+      params: { endpointId: 1 },
+      query: {
+        replayRunId: "2",
+        replayBodyCaptured: "none",
+        replay_path_orderId: "ord-99",
+        replay_query_include: "payments",
       },
     });
   });

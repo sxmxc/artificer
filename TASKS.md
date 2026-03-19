@@ -4,11 +4,9 @@ This file tracks the work needed to bootstrap and evolve the project.
 Read `docs/roadmap.md` alongside this file if you are picking up the next implementation slice.
 
 ## Now
-- [ ] Add project/environment-aware connection management UI instead of the current route-level placeholder card
+- [ ] Add execution drill-down and replay tooling on top of the new `ExecutionRun` / `ExecutionStep` records
 
 ## Next
-- [ ] Let Flow helper/ref pills insert into JSON editors at the current cursor or selection instead of replacing the whole field payload
-- [ ] Add execution drill-down and replay tooling on top of the new `ExecutionRun` / `ExecutionStep` records
 - [ ] Move the schema editor under the route `Contract` journey instead of keeping it as a separate transitional page
 
 ## Later
@@ -20,6 +18,9 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Enforce immutable connector types on connection updates so API clients cannot retarget existing connection ids across HTTP/Postgres
+- [x] Let Flow helper/ref pills drag and drop into JSON editors at the current cursor or selection instead of replacing the whole field payload
+- [x] Add project/environment-aware connection management UI instead of the current route-level placeholder card
 - [x] Add true Flow data-mapping support so operators can compose strings/objects from request and state data instead of only wiring whole refs
 - [x] Add per-node input/output data-shape visibility plus pinned sample payload inspection in the Flow designer
 - [x] Replace native HTML5 `dragstart` / `drop` / `dataTransfer` usage in bespoke editor surfaces with a maintained drag-and-drop library that supports drag overlays, copy/move semantics, and richer drop hooks

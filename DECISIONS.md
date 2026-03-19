@@ -1,5 +1,20 @@
 # DECISIONS
 
+## 2026-03-19: Connection connector type is immutable after creation
+- **Runtime safety**: Treat `Connection.connector_type` as a stable identity property so existing flow nodes bound by `connection_id` cannot be silently retargeted from `http` to `postgres` (or vice versa) by update calls.
+- **Surface parity**: Keep the admin API aligned with the Flow connection dialog, which already treats connector type as immutable during edits.
+- **Failure mode**: Reject type-changing updates with a user-input error instead of attempting conversion, because payload/config semantics differ across connector families and conversion would risk production runtime failures.
+
+## 2026-03-19: Flow helper pills should insert into JSON editors at the last known selection
+- **Authoring scope**: Limit the new drag-to-insert behavior to Flow JSON editors for now; non-JSON flexible fields such as `If` operands and `Switch` values can keep the simpler click-to-replace behavior until the richer mapping UX lands.
+- **Selection model**: Use each editor's last known textarea selection on drop instead of trying to infer a caret from pointer coordinates, because dragging through Vuetify textareas can disturb the native cursor state.
+- **Caret behavior**: When the dropped snippet still parses as valid JSON, let the inspector normalize the draft back to pretty-printed JSON and then restore focus with the caret collapsed immediately after the inserted `$ref` object.
+
+## 2026-03-19: Connection scope should stay lightweight for now
+- **Scope model**: Add `project` and `environment` as lightweight metadata on `Connection` records instead of introducing a first-class Project model during this Flow-operator pass.
+- **Runtime boundary**: Keep flow nodes bound to explicit saved connection ids for now; use the new scope metadata to organize, filter, and rotate connections in the admin UI without silently changing runtime resolution rules.
+- **Operator UX**: Manage shared connections directly from the Flow workspace with create/edit/retire controls, while showing scope in both the manager and the node-binding selectors so mismatches are visible before publish.
+
 ## 2026-03-19: Flow mappings should share one ref-plus-template value language
 - **Authoring model**: Keep the Flow inspector JSON-first for now rather than introducing a separate mapping DSL; operators can map whole values with `{"$ref":"..."}` and compose inline strings with `{{...}}`.
 - **Runtime parity**: Use the same value-rendering semantics in live execution and Flow sample inspection so editor output stays trustworthy before publish.

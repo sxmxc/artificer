@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from "vue";
 import { Background } from "@vue-flow/background";
 import { ControlButton, Controls } from "@vue-flow/controls";
 import { MiniMap } from "@vue-flow/minimap";
@@ -43,7 +43,9 @@ import {
 } from "../utils/pragmaticDnd";
 import {
   createRouteFlowPaletteDragPayload,
+  createRouteFlowReferenceDragPayload,
   getRouteFlowPaletteDragPayload,
+  getRouteFlowReferenceDragPayload,
 } from "../utils/routeFlowDragDrop";
 
 interface RouteFlowCanvasNodeData {
@@ -87,6 +89,7 @@ interface CanvasEdge {
 type ReferenceTarget = "transform" | "response" | "error" | "ifLeft" | "ifRight" | "switchValue";
 type JsonConfigTarget = "transform" | "response" | "error" | "httpQuery" | "httpHeaders" | "httpBody" | "postgresParameters";
 type FlexibleConfigTarget = "ifLeft" | "ifRight" | "switchValue";
+type JsonEditorSelection = { start: number; end: number };
 const BASE_TRANSFORM_REFERENCE_SNIPPETS = [
   { label: "route.path", value: "route.path" },
   { label: "request.path", value: "request.path" },
@@ -138,12 +141,16 @@ const SWITCH_BRANCH_OPTIONS = [
 ];
 const ROUTE_FLOW_NODE_WIDTH = 236;
 const ROUTE_FLOW_NODE_HEIGHT = 104;
+const DEFAULT_CONNECTION_PROJECT = "default";
+const DEFAULT_CONNECTION_ENVIRONMENT = "production";
 
 const props = withDefaults(
   defineProps<{
     modelValue: RouteFlowDefinition;
     errorMessage?: string | null;
     availableConnections?: Connection[];
+    preferredConnectionEnvironment?: string;
+    preferredConnectionProject?: string;
     requestSchema?: JsonObject | null;
     responseSchema?: JsonObject | null;
     routeId?: number | null;
@@ -155,6 +162,8 @@ const props = withDefaults(
   {
     errorMessage: null,
     availableConnections: () => [],
+    preferredConnectionEnvironment: DEFAULT_CONNECTION_ENVIRONMENT,
+    preferredConnectionProject: DEFAULT_CONNECTION_PROJECT,
     requestSchema: () => ({}),
     responseSchema: () => ({}),
     routeId: null,
@@ -208,6 +217,8 @@ const isFocusPaletteOpen = ref(false);
 const isFocusInfoOpen = ref(false);
 const isFocusInspectorOpen = ref(false);
 let previousBodyOverflow = "";
+const jsonEditorRootElements: Partial<Record<JsonConfigTarget, HTMLElement | null>> = {};
+const jsonEditorSelections: Partial<Record<JsonConfigTarget, JsonEditorSelection>> = {};
 
 function copyJsonValue<T extends JsonValue>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -346,7 +357,11 @@ function connectionIdFromValue(value: JsonValue | undefined): number | null {
 }
 
 function connectionOptionTitle(connection: Connection): string {
-  return connection.is_active ? connection.name : `${connection.name} (inactive)`;
+  const titleParts = [connection.name, `${connection.project}/${connection.environment}`];
+  if (!connection.is_active) {
+    titleParts.push("inactive");
+  }
+  return titleParts.join(" · ");
 }
 
 function buildStateReferenceSnippets(node: RouteFlowNode): { label: string; value: string }[] {
@@ -391,8 +406,27 @@ const responseReferenceSnippets = computed(() => [
   ...flowStateReferenceSnippets.value,
   ...BASE_RESPONSE_REFERENCE_SNIPPETS,
 ]);
+const sortedAvailableConnections = computed(() =>
+  [...props.availableConnections].sort((left, right) => {
+    const leftPreferred =
+      left.project === props.preferredConnectionProject && left.environment === props.preferredConnectionEnvironment;
+    const rightPreferred =
+      right.project === props.preferredConnectionProject && right.environment === props.preferredConnectionEnvironment;
+    if (leftPreferred !== rightPreferred) {
+      return leftPreferred ? -1 : 1;
+    }
+    if (left.is_active !== right.is_active) {
+      return left.is_active ? -1 : 1;
+    }
+    return (
+      left.project.localeCompare(right.project) ||
+      left.environment.localeCompare(right.environment) ||
+      left.name.localeCompare(right.name)
+    );
+  }),
+);
 const httpConnectionOptions = computed(() =>
-  props.availableConnections
+  sortedAvailableConnections.value
     .filter((connection) => connection.connector_type === "http")
     .map((connection) => ({
       title: connectionOptionTitle(connection),
@@ -400,7 +434,7 @@ const httpConnectionOptions = computed(() =>
     })),
 );
 const postgresConnectionOptions = computed(() =>
-  props.availableConnections
+  sortedAvailableConnections.value
     .filter((connection) => connection.connector_type === "postgres")
     .map((connection) => ({
       title: connectionOptionTitle(connection),
@@ -796,6 +830,23 @@ function paletteDragBinding(
   };
 }
 
+function referenceSnippetDragBinding(label: string, refPath: string): PragmaticDraggableBinding<Record<string, unknown>> {
+  return {
+    data: createRouteFlowReferenceDragPayload(refPath) as unknown as Record<string, unknown>,
+    preview: {
+      eyebrow: "Flow ref",
+      label,
+      tone: "value",
+    },
+    onDragStart: ({ element }) => {
+      setPaletteDragState(element, true);
+    },
+    onDrop: ({ element }) => {
+      setPaletteDragState(element, false);
+    },
+  };
+}
+
 function handleCanvasDrop(sourceData: Record<string, unknown>, clientX: number, clientY: number): void {
   const payload = getRouteFlowPaletteDragPayload(sourceData);
   if (!payload) {
@@ -829,6 +880,40 @@ const canvasDropBinding = computed<PragmaticDropTargetBinding<Record<string, unk
     handleCanvasDrop(sourceData, clientX, clientY);
   },
 }));
+
+function setJsonEditorRootElement(
+  target: JsonConfigTarget,
+  element: Element | ComponentPublicInstance | null,
+): void {
+  const root =
+    element instanceof HTMLElement
+      ? element
+      : element && "$el" in element && element.$el instanceof HTMLElement
+        ? element.$el
+        : null;
+  if (root) {
+    jsonEditorRootElements[target] = root;
+    return;
+  }
+
+  delete jsonEditorRootElements[target];
+  delete jsonEditorSelections[target];
+}
+
+function resolveJsonEditorTextarea(target: JsonConfigTarget): HTMLTextAreaElement | null {
+  return jsonEditorRootElements[target]?.querySelector("textarea") ?? null;
+}
+
+function rememberJsonEditorSelection(target: JsonConfigTarget, event?: Event): void {
+  const textarea = event?.target instanceof HTMLTextAreaElement ? event.target : resolveJsonEditorTextarea(target);
+  if (!textarea) {
+    return;
+  }
+
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? start;
+  jsonEditorSelections[target] = { start, end };
+}
 
 function refreshInspectorDrafts(): void {
   const selectedNode = selectedCanvasNode.value;
@@ -1137,8 +1222,126 @@ function handlePostgresParametersInput(value: string): void {
   applyJsonConfigField("parameters", value, "postgresParameters");
 }
 
+function buildReferenceSnippet(refPath: string, compact = false): string {
+  return compact ? JSON.stringify({ $ref: refPath }) : JSON.stringify({ $ref: refPath }, null, 2);
+}
+
+function jsonTargetText(target: JsonConfigTarget): string {
+  switch (target) {
+    case "transform":
+      return transformOutputText.value;
+    case "response":
+      return responseBodyText.value;
+    case "error":
+      return errorBodyText.value;
+    case "httpQuery":
+      return httpQueryText.value;
+    case "httpHeaders":
+      return httpHeadersText.value;
+    case "httpBody":
+      return httpBodyText.value;
+    case "postgresParameters":
+      return postgresParametersText.value;
+  }
+}
+
+function applyJsonTargetInput(target: JsonConfigTarget, value: string): void {
+  switch (target) {
+    case "transform":
+      handleTransformOutputInput(value);
+      return;
+    case "response":
+      handleResponseBodyInput(value);
+      return;
+    case "error":
+      handleErrorBodyInput(value);
+      return;
+    case "httpQuery":
+      handleHttpQueryInput(value);
+      return;
+    case "httpHeaders":
+      handleHttpHeadersInput(value);
+      return;
+    case "httpBody":
+      handleHttpBodyInput(value);
+      return;
+    case "postgresParameters":
+      handlePostgresParametersInput(value);
+      return;
+  }
+}
+
+async function insertJsonReferenceSnippet(target: JsonConfigTarget, refPath: string): Promise<void> {
+  const currentValue = jsonTargetText(target);
+  const textarea = resolveJsonEditorTextarea(target);
+  const rememberedSelection = jsonEditorSelections[target];
+  const selectionStart = rememberedSelection?.start ?? textarea?.selectionStart ?? currentValue.length;
+  const selectionEnd = rememberedSelection?.end ?? textarea?.selectionEnd ?? selectionStart;
+  const safeStart = Math.max(0, Math.min(selectionStart, currentValue.length));
+  const safeEnd = Math.max(safeStart, Math.min(selectionEnd, currentValue.length));
+  const snippet = buildReferenceSnippet(refPath, true);
+  const nextValue = `${currentValue.slice(0, safeStart)}${snippet}${currentValue.slice(safeEnd)}`;
+  let caretPosition = safeStart + snippet.length;
+
+  try {
+    const normalizedValue = JSON.stringify(JSON.parse(nextValue) as JsonValue, null, 2);
+    const refLine = `"$ref": "${refPath}"`;
+    const refLineIndex = normalizedValue.indexOf(refLine, Math.max(0, safeStart - refLine.length));
+    if (refLineIndex >= 0) {
+      const closingBraceIndex = normalizedValue.indexOf("}", refLineIndex);
+      caretPosition = closingBraceIndex >= 0 ? closingBraceIndex + 1 : Math.min(caretPosition, normalizedValue.length);
+    } else {
+      caretPosition = Math.min(caretPosition, normalizedValue.length);
+    }
+  } catch {
+    caretPosition = Math.min(caretPosition, nextValue.length);
+  }
+
+  applyJsonTargetInput(target, nextValue);
+  await nextTick();
+
+  const nextTextarea = resolveJsonEditorTextarea(target);
+  if (!nextTextarea) {
+    return;
+  }
+
+  nextTextarea.focus();
+  nextTextarea.setSelectionRange(caretPosition, caretPosition);
+  jsonEditorSelections[target] = {
+    start: caretPosition,
+    end: caretPosition,
+  };
+}
+
+function createJsonReferenceDropBinding(
+  target: JsonConfigTarget,
+): PragmaticDropTargetBinding<Record<string, unknown>> {
+  return {
+    canDrop: ({ sourceData }) => getRouteFlowReferenceDragPayload(sourceData) !== null,
+    dropEffect: "copy",
+    onDrop: ({ sourceData }) => {
+      const payload = getRouteFlowReferenceDragPayload(sourceData);
+      if (!payload) {
+        return;
+      }
+
+      void insertJsonReferenceSnippet(target, payload.refPath);
+    },
+  };
+}
+
+const jsonReferenceDropBindings: Record<JsonConfigTarget, PragmaticDropTargetBinding<Record<string, unknown>>> = {
+  transform: createJsonReferenceDropBinding("transform"),
+  response: createJsonReferenceDropBinding("response"),
+  error: createJsonReferenceDropBinding("error"),
+  httpQuery: createJsonReferenceDropBinding("httpQuery"),
+  httpHeaders: createJsonReferenceDropBinding("httpHeaders"),
+  httpBody: createJsonReferenceDropBinding("httpBody"),
+  postgresParameters: createJsonReferenceDropBinding("postgresParameters"),
+};
+
 function applyReferenceSnippet(target: ReferenceTarget, refPath: string): void {
-  const snippet = JSON.stringify({ $ref: refPath }, null, 2);
+  const snippet = buildReferenceSnippet(refPath, false);
   if (target === "transform") {
     handleTransformOutputInput(snippet);
     return;
@@ -2156,6 +2359,7 @@ onBeforeUnmount(() => {
                             <v-chip
                               v-for="snippet in transformReferenceSnippets"
                               :key="snippet.value"
+                              v-pragmatic-draggable="referenceSnippetDragBinding(snippet.label, snippet.value)"
                               label
                               size="small"
                               variant="outlined"
@@ -2166,18 +2370,27 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
 
-                        <v-textarea
-                          class="mt-3"
-                          auto-grow
-                          hint="Use JSON with whole-value refs like {&quot;$ref&quot;:&quot;request.body&quot;} and inline string templates like &quot;Hello {{request.path.userId}}&quot;."
-                          label="Output template JSON"
-                          persistent-hint
-                          rows="11"
-                          spellcheck="false"
-                          :error-messages="transformOutputError ? [transformOutputError] : []"
-                          :model-value="transformOutputText"
-                          @update:model-value="handleTransformOutputInput(String($event ?? ''))"
-                        />
+                        <div
+                          :ref="(element) => setJsonEditorRootElement('transform', element)"
+                          v-pragmatic-drop-target="jsonReferenceDropBindings.transform"
+                          class="route-flow-editor__json-drop-target mt-3"
+                          @focusin.capture="rememberJsonEditorSelection('transform', $event)"
+                          @keyup.capture="rememberJsonEditorSelection('transform', $event)"
+                          @mouseup.capture="rememberJsonEditorSelection('transform', $event)"
+                          @select.capture="rememberJsonEditorSelection('transform', $event)"
+                        >
+                          <v-textarea
+                            auto-grow
+                            hint="Use JSON with whole-value refs like {&quot;$ref&quot;:&quot;request.body&quot;} and inline string templates like &quot;Hello {{request.path.userId}}&quot;."
+                            label="Output template JSON"
+                            persistent-hint
+                            rows="11"
+                            spellcheck="false"
+                            :error-messages="transformOutputError ? [transformOutputError] : []"
+                            :model-value="transformOutputText"
+                            @update:model-value="handleTransformOutputInput(String($event ?? ''))"
+                          />
+                        </div>
                       </template>
 
                       <template v-else-if="selectedCanvasNode.data.runtimeType === 'if_condition'">
@@ -2356,40 +2569,69 @@ onBeforeUnmount(() => {
                           v-model="selectedNodeTimeoutMs"
                           label="Timeout (ms)"
                         />
-                        <v-textarea
-                          class="mt-2"
-                          auto-grow
-                          hint="Optional JSON object of query params, for example {&quot;include&quot;:{&quot;$ref&quot;:&quot;request.query.include&quot;}}."
-                          label="Query params JSON"
-                          persistent-hint
-                          rows="5"
-                          spellcheck="false"
-                          :error-messages="httpQueryError ? [httpQueryError] : []"
-                          :model-value="httpQueryText"
-                          @update:model-value="handleHttpQueryInput(String($event ?? ''))"
-                        />
-                        <v-textarea
-                          auto-grow
-                          hint="Optional JSON object of headers. Connection-level headers still apply automatically."
-                          label="Request headers JSON"
-                          persistent-hint
-                          rows="5"
-                          spellcheck="false"
-                          :error-messages="httpHeadersError ? [httpHeadersError] : []"
-                          :model-value="httpHeadersText"
-                          @update:model-value="handleHttpHeadersInput(String($event ?? ''))"
-                        />
-                        <v-textarea
-                          auto-grow
-                          hint="Optional JSON body sent to the upstream request."
-                          label="Request body JSON"
-                          persistent-hint
-                          rows="6"
-                          spellcheck="false"
-                          :error-messages="httpBodyError ? [httpBodyError] : []"
-                          :model-value="httpBodyText"
-                          @update:model-value="handleHttpBodyInput(String($event ?? ''))"
-                        />
+                        <div
+                          :ref="(element) => setJsonEditorRootElement('httpQuery', element)"
+                          v-pragmatic-drop-target="jsonReferenceDropBindings.httpQuery"
+                          class="route-flow-editor__json-drop-target mt-2"
+                          @focusin.capture="rememberJsonEditorSelection('httpQuery', $event)"
+                          @keyup.capture="rememberJsonEditorSelection('httpQuery', $event)"
+                          @mouseup.capture="rememberJsonEditorSelection('httpQuery', $event)"
+                          @select.capture="rememberJsonEditorSelection('httpQuery', $event)"
+                        >
+                          <v-textarea
+                            auto-grow
+                            hint="Optional JSON object of query params, for example {&quot;include&quot;:{&quot;$ref&quot;:&quot;request.query.include&quot;}}."
+                            label="Query params JSON"
+                            persistent-hint
+                            rows="5"
+                            spellcheck="false"
+                            :error-messages="httpQueryError ? [httpQueryError] : []"
+                            :model-value="httpQueryText"
+                            @update:model-value="handleHttpQueryInput(String($event ?? ''))"
+                          />
+                        </div>
+                        <div
+                          :ref="(element) => setJsonEditorRootElement('httpHeaders', element)"
+                          v-pragmatic-drop-target="jsonReferenceDropBindings.httpHeaders"
+                          class="route-flow-editor__json-drop-target"
+                          @focusin.capture="rememberJsonEditorSelection('httpHeaders', $event)"
+                          @keyup.capture="rememberJsonEditorSelection('httpHeaders', $event)"
+                          @mouseup.capture="rememberJsonEditorSelection('httpHeaders', $event)"
+                          @select.capture="rememberJsonEditorSelection('httpHeaders', $event)"
+                        >
+                          <v-textarea
+                            auto-grow
+                            hint="Optional JSON object of headers. Connection-level headers still apply automatically."
+                            label="Request headers JSON"
+                            persistent-hint
+                            rows="5"
+                            spellcheck="false"
+                            :error-messages="httpHeadersError ? [httpHeadersError] : []"
+                            :model-value="httpHeadersText"
+                            @update:model-value="handleHttpHeadersInput(String($event ?? ''))"
+                          />
+                        </div>
+                        <div
+                          :ref="(element) => setJsonEditorRootElement('httpBody', element)"
+                          v-pragmatic-drop-target="jsonReferenceDropBindings.httpBody"
+                          class="route-flow-editor__json-drop-target"
+                          @focusin.capture="rememberJsonEditorSelection('httpBody', $event)"
+                          @keyup.capture="rememberJsonEditorSelection('httpBody', $event)"
+                          @mouseup.capture="rememberJsonEditorSelection('httpBody', $event)"
+                          @select.capture="rememberJsonEditorSelection('httpBody', $event)"
+                        >
+                          <v-textarea
+                            auto-grow
+                            hint="Optional JSON body sent to the upstream request."
+                            label="Request body JSON"
+                            persistent-hint
+                            rows="6"
+                            spellcheck="false"
+                            :error-messages="httpBodyError ? [httpBodyError] : []"
+                            :model-value="httpBodyText"
+                            @update:model-value="handleHttpBodyInput(String($event ?? ''))"
+                          />
+                        </div>
                       </template>
 
                       <template v-else-if="selectedCanvasNode.data.runtimeType === 'postgres_query'">
@@ -2415,17 +2657,27 @@ onBeforeUnmount(() => {
                           :model-value="postgresSqlText"
                           @update:model-value="handlePostgresSqlInput(String($event ?? ''))"
                         />
-                        <v-textarea
-                          auto-grow
-                          hint="Map placeholders to refs, for example {&quot;order_id&quot;:{&quot;$ref&quot;:&quot;request.path.orderId&quot;}}."
-                          label="Parameters JSON"
-                          persistent-hint
-                          rows="6"
-                          spellcheck="false"
-                          :error-messages="postgresParametersError ? [postgresParametersError] : []"
-                          :model-value="postgresParametersText"
-                          @update:model-value="handlePostgresParametersInput(String($event ?? ''))"
-                        />
+                        <div
+                          :ref="(element) => setJsonEditorRootElement('postgresParameters', element)"
+                          v-pragmatic-drop-target="jsonReferenceDropBindings.postgresParameters"
+                          class="route-flow-editor__json-drop-target"
+                          @focusin.capture="rememberJsonEditorSelection('postgresParameters', $event)"
+                          @keyup.capture="rememberJsonEditorSelection('postgresParameters', $event)"
+                          @mouseup.capture="rememberJsonEditorSelection('postgresParameters', $event)"
+                          @select.capture="rememberJsonEditorSelection('postgresParameters', $event)"
+                        >
+                          <v-textarea
+                            auto-grow
+                            hint="Map placeholders to refs, for example {&quot;order_id&quot;:{&quot;$ref&quot;:&quot;request.path.orderId&quot;}}."
+                            label="Parameters JSON"
+                            persistent-hint
+                            rows="6"
+                            spellcheck="false"
+                            :error-messages="postgresParametersError ? [postgresParametersError] : []"
+                            :model-value="postgresParametersText"
+                            @update:model-value="handlePostgresParametersInput(String($event ?? ''))"
+                          />
+                        </div>
                       </template>
 
                       <template v-else-if="selectedCanvasNode.data.runtimeType === 'set_response'">
@@ -2442,6 +2694,7 @@ onBeforeUnmount(() => {
                             <v-chip
                               v-for="snippet in responseReferenceSnippets"
                               :key="snippet.value"
+                              v-pragmatic-draggable="referenceSnippetDragBinding(snippet.label, snippet.value)"
                               label
                               size="small"
                               variant="outlined"
@@ -2452,18 +2705,27 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
 
-                        <v-textarea
-                          class="mt-3"
-                          auto-grow
-                          hint="Response bodies can mix fixed JSON, whole-value refs like {&quot;$ref&quot;:&quot;state.transform&quot;}, and inline string templates like &quot;order={{request.path.orderId}}&quot;."
-                          label="Response body JSON"
-                          persistent-hint
-                          rows="11"
-                          spellcheck="false"
-                          :error-messages="responseBodyError ? [responseBodyError] : []"
-                          :model-value="responseBodyText"
-                          @update:model-value="handleResponseBodyInput(String($event ?? ''))"
-                        />
+                        <div
+                          :ref="(element) => setJsonEditorRootElement('response', element)"
+                          v-pragmatic-drop-target="jsonReferenceDropBindings.response"
+                          class="route-flow-editor__json-drop-target mt-3"
+                          @focusin.capture="rememberJsonEditorSelection('response', $event)"
+                          @keyup.capture="rememberJsonEditorSelection('response', $event)"
+                          @mouseup.capture="rememberJsonEditorSelection('response', $event)"
+                          @select.capture="rememberJsonEditorSelection('response', $event)"
+                        >
+                          <v-textarea
+                            auto-grow
+                            hint="Response bodies can mix fixed JSON, whole-value refs like {&quot;$ref&quot;:&quot;state.transform&quot;}, and inline string templates like &quot;order={{request.path.orderId}}&quot;."
+                            label="Response body JSON"
+                            persistent-hint
+                            rows="11"
+                            spellcheck="false"
+                            :error-messages="responseBodyError ? [responseBodyError] : []"
+                            :model-value="responseBodyText"
+                            @update:model-value="handleResponseBodyInput(String($event ?? ''))"
+                          />
+                        </div>
                       </template>
 
                       <template v-else-if="selectedCanvasNode.data.runtimeType === 'error_response'">
@@ -2475,6 +2737,7 @@ onBeforeUnmount(() => {
                             <v-chip
                               v-for="snippet in ERROR_REFERENCE_SNIPPETS"
                               :key="snippet.value"
+                              v-pragmatic-draggable="referenceSnippetDragBinding(snippet.label, snippet.value)"
                               label
                               size="small"
                               variant="outlined"
@@ -2485,18 +2748,27 @@ onBeforeUnmount(() => {
                           </div>
                         </div>
 
-                        <v-textarea
-                          class="mt-3"
-                          auto-grow
-                          hint="Returned when Validate Request fails or a flow path routes here. Supports whole-value refs and inline string templates such as &quot;reason={{errors.0}}&quot;."
-                          label="Error response body JSON"
-                          persistent-hint
-                          rows="11"
-                          spellcheck="false"
-                          :error-messages="errorBodyError ? [errorBodyError] : []"
-                          :model-value="errorBodyText"
-                          @update:model-value="handleErrorBodyInput(String($event ?? ''))"
-                        />
+                        <div
+                          :ref="(element) => setJsonEditorRootElement('error', element)"
+                          v-pragmatic-drop-target="jsonReferenceDropBindings.error"
+                          class="route-flow-editor__json-drop-target mt-3"
+                          @focusin.capture="rememberJsonEditorSelection('error', $event)"
+                          @keyup.capture="rememberJsonEditorSelection('error', $event)"
+                          @mouseup.capture="rememberJsonEditorSelection('error', $event)"
+                          @select.capture="rememberJsonEditorSelection('error', $event)"
+                        >
+                          <v-textarea
+                            auto-grow
+                            hint="Returned when Validate Request fails or a flow path routes here. Supports whole-value refs and inline string templates such as &quot;reason={{errors.0}}&quot;."
+                            label="Error response body JSON"
+                            persistent-hint
+                            rows="11"
+                            spellcheck="false"
+                            :error-messages="errorBodyError ? [errorBodyError] : []"
+                            :model-value="errorBodyText"
+                            @update:model-value="handleErrorBodyInput(String($event ?? ''))"
+                          />
+                        </div>
                       </template>
                     </v-sheet>
                   </div>

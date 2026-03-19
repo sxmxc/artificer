@@ -675,6 +675,26 @@ def test_runtime_connections_are_scoped_and_can_be_updated(empty_db):
     assert update_response.json()["project"] == "project-alpha"
     assert update_response.json()["environment"] == "staging"
     assert update_response.json()["is_active"] is False
+    assert update_response.json()["connector_type"] == "http"
+
+    immutable_type_response = client.put(
+        "/api/admin/connections/1",
+        json={
+            "project": "project-alpha",
+            "environment": "staging",
+            "name": "Orders upstream",
+            "connector_type": "postgres",
+            "description": "Should fail type mutation",
+            "config": {"dsn": "postgresql://user:pass@db.internal:5432/orders"},
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert immutable_type_response.status_code == 400
+    assert (
+        immutable_type_response.json()["detail"]
+        == "Connection connector_type is immutable after creation and must match the existing record."
+    )
 
     filtered_response = client.get(
         "/api/admin/connections?project=project-alpha&environment=staging",

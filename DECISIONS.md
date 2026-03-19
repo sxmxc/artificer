@@ -1,5 +1,10 @@
 # DECISIONS
 
+## 2026-03-19: Connection connector type is immutable after creation
+- **Runtime safety**: Treat `Connection.connector_type` as a stable identity property so existing flow nodes bound by `connection_id` cannot be silently retargeted from `http` to `postgres` (or vice versa) by update calls.
+- **Surface parity**: Keep the admin API aligned with the Flow connection dialog, which already treats connector type as immutable during edits.
+- **Failure mode**: Reject type-changing updates with a user-input error instead of attempting conversion, because payload/config semantics differ across connector families and conversion would risk production runtime failures.
+
 ## 2026-03-19: Flow helper pills should insert into JSON editors at the last known selection
 - **Authoring scope**: Limit the new drag-to-insert behavior to Flow JSON editors for now; non-JSON flexible fields such as `If` operands and `Switch` values can keep the simpler click-to-replace behavior until the richer mapping UX lands.
 - **Selection model**: Use each editor's last known textarea selection on drop instead of trying to infer a caret from pointer coordinates, because dragging through Vuetify textareas can disturb the native cursor state.

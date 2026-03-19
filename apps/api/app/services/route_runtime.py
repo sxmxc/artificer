@@ -2124,6 +2124,10 @@ def create_connection(session: Session, payload: ConnectionCreate) -> Connection
 
 def update_connection(session: Session, connection: Connection, payload: ConnectionUpdate) -> Connection:
     normalized = _normalize_connection_payload(payload)
+    if normalized.connector_type != connection.connector_type:
+        raise ValueError(
+            "Connection connector_type is immutable after creation and must match the existing record."
+        )
     existing = _find_connection_name_conflict(
         session,
         project=normalized.project,

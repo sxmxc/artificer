@@ -18,6 +18,7 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Enforce immutable connector types on connection updates so API clients cannot retarget existing connection ids across HTTP/Postgres
 - [x] Let Flow helper/ref pills drag and drop into JSON editors at the current cursor or selection instead of replacing the whole field payload
 - [x] Add project/environment-aware connection management UI instead of the current route-level placeholder card
 - [x] Add true Flow data-mapping support so operators can compose strings/objects from request and state data instead of only wiring whole refs

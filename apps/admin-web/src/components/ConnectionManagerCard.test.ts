@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/vue";
+import { fireEvent, render, screen, within } from "@testing-library/vue";
 
 import ConnectionManagerCard from "./ConnectionManagerCard.vue";
 import { vuetify } from "../plugins/vuetify";
@@ -101,8 +101,9 @@ describe("ConnectionManagerCard", () => {
       preferredEnvironment: "production",
     });
 
+    const dialog = screen.getByRole("dialog");
     expect(
-      screen.getByText("Connection 'Duplicate name' is already in use for scope 'project-alpha/production'."),
+      within(dialog).getByText("Connection 'Duplicate name' is already in use for scope 'project-alpha/production'."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save connection" })).toBeInTheDocument();
   });

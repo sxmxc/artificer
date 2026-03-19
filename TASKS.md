@@ -4,11 +4,10 @@ This file tracks the work needed to bootstrap and evolve the project.
 Read `docs/roadmap.md` alongside this file if you are picking up the next implementation slice.
 
 ## Now
-- [ ] Add project/environment-aware connection management UI instead of the current route-level placeholder card
+- [ ] Add true Flow data-mapping support so operators can compose strings/objects from request and state data instead of only wiring whole refs
 
 ## Next
-- [ ] Add true Flow data-mapping support so operators can compose strings/objects from request and state data instead of only wiring whole refs
-- [ ] Add per-node input/output data-shape visibility plus pinned sample payload inspection in the Flow designer
+- [ ] Add project/environment-aware connection management UI instead of the current route-level placeholder card
 - [ ] Let Flow helper/ref pills insert into JSON editors at the current cursor or selection instead of replacing the whole field payload
 - [ ] Add execution drill-down and replay tooling on top of the new `ExecutionRun` / `ExecutionStep` records
 - [ ] Move the schema editor under the route `Contract` journey instead of keeping it as a separate transitional page
@@ -22,6 +21,7 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Add per-node input/output data-shape visibility plus pinned sample payload inspection in the Flow designer
 - [x] Replace native HTML5 `dragstart` / `drop` / `dataTransfer` usage in bespoke editor surfaces with a maintained drag-and-drop library that supports drag overlays, copy/move semantics, and richer drop hooks
 - [x] Fix route deletion so published routes with implementations, deployments, and executions can be removed cleanly from the UI and admin API
 - [x] Preserve `make ui-test-user` helper defaults when `UI_TEST_ADMIN_*` vars are unset or blank in the shell/container env

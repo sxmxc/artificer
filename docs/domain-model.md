@@ -125,7 +125,7 @@ For string identifiers, `format: uuid` is treated as the semantic `id` value typ
 
 Mode behavior:
 - `generate`: type-correct true random values.
-- `mocking`: type-correct values with a sharper Mockingbird tone, such as snarkier text, cheekier slugs/emails, sardonic company names, or longer quote/message copy that can gently roast the consumer.
+- `mocking`: type-correct values with a sharper Artificer tone, such as snarkier text, cheekier slugs/emails, sardonic company names, or longer quote/message copy that can gently roast the consumer.
 - `fixed`: static literal JSON returned exactly as configured.
 - If `x-mock.template` is present on a response `string` node, the node's base generated/fixed value is exposed as `{{value}}` and then wrapped with request-aware template tokens before the final string is returned.
 
@@ -139,7 +139,7 @@ Mode behavior:
 - Parameter authoring is intentionally limited to flat scalar/enum fields today; nested parameter objects, arrays, and advanced serialization styles are not modeled yet.
 
 ## Catalog bundle
-The admin import/export flow still uses a native Mockingbird JSON bundle for backup and environment sync.
+The admin import/export flow still uses a native Artificer JSON bundle for backup and environment sync.
 - Top-level bundle fields are `schema_version`, `product`, `exported_at`, and `endpoints`.
 - Each bundled endpoint stores the editable route contract, including request/response schemas and runtime simulation settings, but excludes DB-only fields such as `id`, `created_at`, and `updated_at`.
 - V1 imports match existing routes by normalized `method + path`; `slug` remains an internal field that can be de-duplicated during import.
@@ -194,11 +194,17 @@ The OpenAPI schema is generated dynamically by mapping `EndpointDefinition` fiel
 - `summary` and `description` are used in the OpenAPI operation.
 
 ## Public reference feed
-The public `/api/reference.json` feed exposes sanitized route metadata for the landing page quick reference.
+The public `/api/reference.json` feed exposes sanitized route metadata for the `/status` page quick reference.
 - The same shared public-route policy gates which routes appear there, so runtime-managed routes disappear from the feed unless they still have an active deployment.
+- Each published route now also carries a computed `publication_status` payload so the status page can show whether a route is deployment-backed live or still on the legacy mock path without hard-coding those labels in the browser.
 - `request_schema` and `response_schema` are stripped of internal `x-mock`, `x-builder`, and `x-request` keys before publishing.
 - `sample_response` is generated from `response_schema`.
 - `sample_request` is generated from the root request-body schema for `POST` / `PUT` / `PATCH` routes so the public examples modal can show the JSON body to send alongside the mock response.
+
+## System health endpoint
+`/api/health` is now a system-owned health surface rather than a DB-authored route.
+- The response reports an overall status plus per-dependency checks for the API process, database, deployment registry, public reference generation, and OpenAPI generation.
+- `/api/health` is reserved and cannot be claimed by user-authored route definitions.
 
 ## Boundary rules
 

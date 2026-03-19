@@ -90,6 +90,11 @@ from app.services.route_runtime import (
     update_connection,
     upsert_route_implementation,
 )
+from app.services.route_status import (
+    build_endpoint_read,
+    build_route_publication_status,
+    load_route_publication_facts,
+)
 from app.services.schema_contract import (
     normalize_request_schema_contract,
     normalize_schema_for_builder,
@@ -99,7 +104,7 @@ from app.time_utils import utc_now
 
 
 router = APIRouter()
-ENDPOINT_BUNDLE_PRODUCT = "Mockingbird"
+ENDPOINT_BUNDLE_PRODUCT = "Artificer"
 ENDPOINT_BUNDLE_SCHEMA_VERSION = 1
 SLUG_SEPARATOR_PATTERN = re.compile(r"[^a-z0-9]+")
 
@@ -109,6 +114,28 @@ class _EndpointImportPlanAction:
     action: str
     endpoint: EndpointDefinition | None = None
     payload: dict[str, Any] | None = None
+
+
+def _build_endpoint_reads(session: Session, endpoints: list[EndpointDefinition]) -> list[EndpointRead]:
+    publication_facts = load_route_publication_facts(
+        session,
+        [int(endpoint.id) for endpoint in endpoints if endpoint.id is not None],
+    )
+    return [
+        build_endpoint_read(
+            endpoint,
+            build_route_publication_status(endpoint, publication_facts.get(int(endpoint.id or 0))),
+        )
+        for endpoint in endpoints
+    ]
+
+
+def _build_single_endpoint_read(session: Session, endpoint: EndpointDefinition) -> EndpointRead:
+    publication_facts = load_route_publication_facts(session, [int(endpoint.id or 0)])
+    return build_endpoint_read(
+        endpoint,
+        build_route_publication_status(endpoint, publication_facts.get(int(endpoint.id or 0))),
+    )
 
 
 def _normalize_request_schema(schema: dict | None, *, path: str | None = None) -> dict:
@@ -249,6 +276,15 @@ def _endpoint_import_operation(
     )
 
 
+def _import_operation_detail(error: ValueError | HTTPException) -> str:
+    if isinstance(error, HTTPException):
+        detail = error.detail
+        if isinstance(detail, str):
+            return detail
+        return str(detail)
+    return str(error)
+
+
 def _list_all_endpoints(session: Session, *, batch_size: int = 500) -> list[EndpointDefinition]:
     endpoints: list[EndpointDefinition] = []
     offset = 0
@@ -357,14 +393,14 @@ def _plan_endpoint_import(
                 current_path=bundled_endpoint.path,
                 current_request_schema=bundled_endpoint.request_schema,
             )
-        except ValueError as error:
+        except (ValueError, HTTPException) as error:
             operations.append(
                 _endpoint_import_operation(
                     "error",
                     name=bundled_endpoint.name,
                     method=bundled_endpoint.method,
                     path=bundled_endpoint.path,
-                    detail=str(error),
+                    detail=_import_operation_detail(error),
                 )
             )
             has_errors = True
@@ -685,13 +721,13 @@ def update_dashboard_user(
     if payload.is_active is False and user.is_active and current_role == AdminRole.superuser and count_active_superusers(session, exclude_user_id=user.id) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mockingbird must keep at least one active superuser.",
+            detail="Artificer Studio must keep at least one active superuser.",
         )
 
     if requested_role != AdminRole.superuser and current_role == AdminRole.superuser and user.is_active and count_active_superusers(session, exclude_user_id=user.id) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mockingbird must keep at least one active superuser.",
+            detail="Artificer Studio must keep at least one active superuser.",
         )
 
     try:
@@ -739,7 +775,7 @@ def delete_dashboard_user(
     if user.is_active and resolve_admin_role(user) == AdminRole.superuser and count_active_superusers(session, exclude_user_id=user.id) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mockingbird must keep at least one active superuser.",
+            detail="Artificer Studio must keep at least one active superuser.",
         )
 
     delete_admin_user(session, user)
@@ -751,7 +787,7 @@ def list_all_endpoints(
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_route_read_access),
 ) -> list[EndpointRead]:
-    return list_endpoints(session)
+    return _build_endpoint_reads(session, list_endpoints(session))
 
 
 @router.get("/endpoints/export", response_model=EndpointBundle)
@@ -798,7 +834,7 @@ def read_endpoint(
     endpoint = get_endpoint(session, endpoint_id)
     if not endpoint:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found")
-    return endpoint
+    return _build_single_endpoint_read(session, endpoint)
 
 
 @router.post("/endpoints", response_model=EndpointRead, status_code=status.HTTP_201_CREATED)
@@ -823,7 +859,7 @@ def create_new_endpoint(
     payload = EndpointCreate(**normalized_fields)
     endpoint = create_endpoint(session, payload)
     invalidate_deployment_registry()
-    return endpoint
+    return _build_single_endpoint_read(session, endpoint)
 
 
 @router.put("/endpoints/{endpoint_id}", response_model=EndpointRead)
@@ -854,7 +890,7 @@ def update_existing_endpoint(
         )
     updated_endpoint = update_endpoint(session, endpoint, EndpointUpdate(**updates))
     invalidate_deployment_registry()
-    return updated_endpoint
+    return _build_single_endpoint_read(session, updated_endpoint)
 
 
 @router.delete("/endpoints/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import sys
@@ -11,7 +12,7 @@ from sqlalchemy import create_engine, inspect, select, text
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-TEST_DB_PATH = Path(tempfile.gettempdir()) / "mockingbird-test.db"
+TEST_DB_PATH = Path(tempfile.gettempdir()) / "artificer-test.db"
 if TEST_DB_PATH.exists():
     TEST_DB_PATH.unlink()
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{TEST_DB_PATH}")
@@ -149,6 +150,31 @@ def _live_route_flow_definition(*, status_code: int = 200, body: dict | None = N
             {"source": "transform", "target": "response"},
         ],
     }
+
+
+class _FakeMigrationResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class _FakeMigrationBind:
+    def __init__(self, rows):
+        self.rows = rows
+        self.executed: list[tuple[str, dict]] = []
+
+    def execute(self, statement, params=None):
+        sql = str(statement)
+        if "SELECT" in sql and "FROM endpointdefinition" in sql:
+            return _FakeMigrationResult(self.rows)
+
+        self.executed.append((sql, dict(params or {})))
+        return _FakeMigrationResult([])
 
 
 @pytest.fixture
@@ -1357,7 +1383,7 @@ def test_runtime_postgres_query_connector_executes_and_records_steps(empty_db, m
             "connector_type": "postgres",
             "description": "Read-only reporting replica",
             "config": {
-                "dsn": "postgresql://readonly:secret@db.internal:5432/mockingbird",
+                "dsn": "postgresql://readonly:secret@db.internal:5432/artificer",
             },
             "is_active": True,
         },
@@ -1427,7 +1453,7 @@ def test_runtime_postgres_query_connector_executes_and_records_steps(empty_db, m
 
     assert called == {
         "connection_config": {
-            "dsn": "postgresql://readonly:secret@db.internal:5432/mockingbird",
+            "dsn": "postgresql://readonly:secret@db.internal:5432/artificer",
         },
         "sql": "select order_id, status from orders where order_id = %(order_id)s",
         "parameters": {"order_id": "ord_123"},
@@ -1669,47 +1695,114 @@ def test_public_contract_surfaces_hide_runtime_managed_routes_without_active_dep
     }
 
 
-def test_public_landing_reference_and_brand_asset(seeded_db):
+def test_admin_endpoint_reads_include_runtime_aware_publication_status(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    disabled_response = client.post(
+        "/api/admin/endpoints",
+        json={
+            **_endpoint_payload(name="Disabled route", path="/api/admin-status-disabled"),
+            "enabled": False,
+        },
+        headers=headers,
+    )
+    assert disabled_response.status_code == 201
+
+    legacy_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Legacy route", path="/api/admin-status-legacy"),
+        headers=headers,
+    )
+    assert legacy_response.status_code == 201
+
+    draft_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Draft route", path="/api/admin-status-draft"),
+        headers=headers,
+    )
+    assert draft_response.status_code == 201
+    draft_route = draft_response.json()
+
+    save_draft_response = client.put(
+        f"/api/admin/endpoints/{draft_route['id']}/implementation/current",
+        json={"flow_definition": _live_route_flow_definition(body={"mode": "draft-only"})},
+        headers=headers,
+    )
+    assert save_draft_response.status_code == 200
+
+    live_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Live route", path="/api/admin-status-live"),
+        headers=headers,
+    )
+    assert live_response.status_code == 201
+    live_route = live_response.json()
+
+    publish_live_response = client.post(
+        f"/api/admin/endpoints/{live_route['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_live_response.status_code == 201
+
+    list_response = client.get("/api/admin/endpoints", headers=headers)
+    assert list_response.status_code == 200
+    statuses_by_path = {
+        endpoint["path"]: endpoint["publication_status"]["code"]
+        for endpoint in list_response.json()
+    }
+    assert statuses_by_path["/api/admin-status-disabled"] == "disabled"
+    assert statuses_by_path["/api/admin-status-legacy"] == "legacy_mock"
+    assert statuses_by_path["/api/admin-status-draft"] == "draft_only"
+    assert statuses_by_path["/api/admin-status-live"] == "published_live"
+
+
+def test_public_status_page_reference_and_brand_asset(seeded_db):
     client = TestClient(app)
 
-    landing = client.get("/")
-    assert landing.status_code == 200
-    assert "Mockingbird" in landing.text
-    assert "data and no bedside manner" in landing.text
-    assert "WARNING: The API may sometimes mock back." in landing.text
-    assert "hero-title-accent" in landing.text
-    assert "hero-panel-bottom" in landing.text
-    assert "hero-panel-media" in landing.text
-    assert "/static/landing/hero-top.svg" in landing.text
-    assert "/static/landing/hero-bottom.svg" in landing.text
-    assert "/api/reference.json" in landing.text
-    assert "reference-table-body" in landing.text
-    assert "payload-popover" in landing.text
-    assert "payload-popover-request-section" in landing.text
-    assert "modal-card-head-content" in landing.text
-    assert "theme-toggle" in landing.text
-    assert "bulma@1.0.4" in landing.text
-    assert "status-success" in landing.text
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code == 307
+    assert root.headers["location"] == "/status"
 
-    api_landing = client.get("/api")
-    assert api_landing.status_code == 200
-    assert "Browse live routes, inspect example payloads" in api_landing.text
+    api_root = client.get("/api")
+    assert api_root.status_code == 204
+    assert api_root.text == ""
+
+    status_page = client.get("/status")
+    assert status_page.status_code == 200
+    assert "Artificer API status." in status_page.text
+    assert "Dependency health" in status_page.text
+    assert "/api/reference.json" in status_page.text
+    assert "/openapi.json" in status_page.text
+    assert "Published routes right now." in status_page.text
+    assert "Checked dependency by dependency." in status_page.text
+    assert "reference-table-body" in status_page.text
+    assert "payload-popover" in status_page.text
+    assert "payload-popover-request-section" in status_page.text
+    assert "modal-card-head-content" in status_page.text
+    assert "theme-toggle" in status_page.text
+    assert "bulma@1.0.4" in status_page.text
+    assert "status-success" in status_page.text
 
     reference = client.get("/api/reference.json")
     assert reference.status_code == 200
     payload = reference.json()
-    assert payload["product_name"] == "Mockingbird"
+    assert payload["product_name"] == "Artificer API"
     assert payload["endpoint_count"] >= 1
+    assert "/api/health" not in {endpoint["path"] for endpoint in payload["endpoints"]}
     assert any(endpoint["sample_response"] is not None for endpoint in payload["endpoints"])
 
     post_endpoint = next(endpoint for endpoint in payload["endpoints"] if endpoint["method"] == "POST")
     assert post_endpoint["sample_request"] is not None
     assert post_endpoint["sample_response"] is not None
+    assert post_endpoint["publication_status"]["code"] in {"legacy_mock", "published_live"}
 
     get_endpoint = next(endpoint for endpoint in payload["endpoints"] if endpoint["method"] == "GET")
     assert get_endpoint["sample_request"] is None
+    assert get_endpoint["publication_status"]["label"]
 
-    asset = client.get("/static/mockingbird-icon.svg")
+    asset = client.get("/static/icon.svg")
     assert asset.status_code == 200
     assert asset.headers["content-type"].startswith("image/svg+xml")
 
@@ -1817,7 +1910,7 @@ def test_public_surfaces_follow_route_level_deployment_history(empty_db):
     assert legacy_response.json() == {"status": "ok"}
 
 
-def test_public_landing_escapes_embedded_reference_payload(empty_db):
+def test_public_status_page_escapes_embedded_reference_payload(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)
 
@@ -1831,21 +1924,44 @@ def test_public_landing_escapes_embedded_reference_payload(empty_db):
     )
     assert create_response.status_code == 201
 
-    landing = client.get("/")
-    assert landing.status_code == 200
-    assert '<script id="initial-reference-data" type="application/json">' in landing.text
-    assert "\\u003c/script\\u003e\\u003cscript\\u003ewindow.__MB_XSS__" in landing.text
-    assert '</script><script>window.__MB_XSS__="pwned"</script>' not in landing.text
+    status_page = client.get("/status")
+    assert status_page.status_code == 200
+    assert '<script id="initial-reference-data" type="application/json">' in status_page.text
+    assert "\\u003c/script\\u003e\\u003cscript\\u003ewindow.__MB_XSS__" in status_page.text
+    assert '</script><script>window.__MB_XSS__="pwned"</script>' not in status_page.text
 
 
 def test_security_headers_are_present_on_public_and_api_responses(seeded_db):
     client = TestClient(app)
 
-    landing = client.get("/")
-    assert landing.headers["x-content-type-options"] == "nosniff"
-    assert landing.headers["x-frame-options"] == "DENY"
-    assert landing.headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    assert "content-security-policy" in landing.headers
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code == 307
+    assert root.headers["location"] == "/status"
+    assert root.headers["x-content-type-options"] == "nosniff"
+    assert root.headers["x-frame-options"] == "DENY"
+    assert root.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert "content-security-policy" in root.headers
+
+    status_page = client.get("/status")
+    assert status_page.headers["x-content-type-options"] == "nosniff"
+    assert status_page.headers["x-frame-options"] == "DENY"
+    assert status_page.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert "content-security-policy" in status_page.headers
+    assert "https://cdn.jsdelivr.net" in status_page.headers["content-security-policy"]
+
+    docs_page = client.get("/docs")
+    assert docs_page.status_code == 200
+    assert docs_page.headers["x-content-type-options"] == "nosniff"
+    assert docs_page.headers["x-frame-options"] == "DENY"
+    assert docs_page.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert "https://cdn.jsdelivr.net" in docs_page.headers["content-security-policy"]
+    assert "'unsafe-inline'" in docs_page.headers["content-security-policy"]
+
+    redoc_page = client.get("/redoc")
+    assert redoc_page.status_code == 200
+    assert "https://cdn.jsdelivr.net" in redoc_page.headers["content-security-policy"]
+    assert "https://fonts.googleapis.com" in redoc_page.headers["content-security-policy"]
+    assert "https://fonts.gstatic.com" in redoc_page.headers["content-security-policy"]
 
     reference = client.get("/api/reference.json")
     assert reference.headers["x-content-type-options"] == "nosniff"
@@ -2358,6 +2474,116 @@ def test_private_admin_paths_cannot_be_created_as_public_mocks(empty_db):
     assert "reserved for private admin routes" in response.json()["detail"]
 
 
+def test_system_health_path_cannot_be_created_as_public_mock(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    response = client.post(
+        "/api/admin/endpoints",
+        json={
+            "name": "Shadow Health",
+            "method": "GET",
+            "path": "/api/health",
+            "category": "security",
+            "tags": [],
+            "summary": "Should be rejected",
+            "description": "Reserved path",
+            "enabled": True,
+            "auth_mode": "none",
+            "request_schema": {},
+            "response_schema": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "x-mock": {"mode": "fixed", "value": "blocked", "options": {}},
+                    }
+                },
+                "required": ["status"],
+                "x-builder": {"order": ["status"]},
+                "x-mock": {"mode": "generate"},
+            },
+            "success_status_code": 200,
+            "error_rate": 0.0,
+            "latency_min_ms": 0,
+            "latency_max_ms": 0,
+            "seed_key": None,
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert "reserved for the system health endpoint" in response.json()["detail"]
+
+
+def test_system_health_route_migration_only_deletes_legacy_seeded_rows(monkeypatch):
+    migration_module = importlib.import_module("migrations.versions.20260319_0009_system_health_endpoint")
+    bind = _FakeMigrationBind(
+        [
+            {
+                "id": 7,
+                "name": "Health",
+                "slug": "health",
+                "method": "GET",
+                "path": "/api/health",
+                "category": "system",
+                "tags": json.dumps(["system"]),
+                "summary": "Health check",
+                "description": None,
+                "enabled": True,
+                "auth_mode": "none",
+                "request_schema": json.dumps({}),
+                "response_schema": json.dumps(migration_module.LEGACY_SEEDED_HEALTH_RESPONSE_SCHEMA),
+                "success_status_code": 200,
+                "error_rate": 0.0,
+                "latency_min_ms": 0,
+                "latency_max_ms": 0,
+                "seed_key": None,
+            }
+        ]
+    )
+    monkeypatch.setattr(migration_module.op, "get_bind", lambda: bind)
+
+    migration_module.upgrade()
+
+    assert [params["route_id"] for _, params in bind.executed] == [7, 7, 7, 7, 7]
+    assert "DELETE FROM endpointdefinition" in bind.executed[-1][0]
+
+
+def test_system_health_route_migration_fails_on_non_seeded_rows(monkeypatch):
+    migration_module = importlib.import_module("migrations.versions.20260319_0009_system_health_endpoint")
+    bind = _FakeMigrationBind(
+        [
+            {
+                "id": 13,
+                "name": "Tenant health",
+                "slug": "tenant-health",
+                "method": "GET",
+                "path": "/api/health",
+                "category": "tenant",
+                "tags": json.dumps(["tenant"]),
+                "summary": "Custom tenant health route",
+                "description": "Should not be deleted by migration.",
+                "enabled": True,
+                "auth_mode": "none",
+                "request_schema": json.dumps({}),
+                "response_schema": json.dumps({}),
+                "success_status_code": 200,
+                "error_rate": 0.0,
+                "latency_min_ms": 0,
+                "latency_max_ms": 0,
+                "seed_key": None,
+            }
+        ]
+    )
+    monkeypatch.setattr(migration_module.op, "get_bind", lambda: bind)
+
+    with pytest.raises(RuntimeError, match="non-seeded routes using /api/health"):
+        migration_module.upgrade()
+
+    assert bind.executed == []
+
+
 def test_public_route_matching_treats_saved_paths_as_literals(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)
@@ -2644,7 +2870,7 @@ def test_preview_endpoint_is_seeded_and_type_correct(empty_db):
     assert isinstance(first_preview["firstName"], str) and first_preview["firstName"]
     assert isinstance(first_preview["displayName"], str) and " " in first_preview["displayName"]
     assert isinstance(first_preview["quote"], str) and len(first_preview["quote"]) > 64
-    assert first_preview["contact"].endswith("@mockingbird.test")
+    assert first_preview["contact"].endswith("@artificer.test")
     assert isinstance(first_preview["passwordHash"], str)
     assert first_preview["passwordHash"].startswith("$2b$12$")
     assert len(first_preview["passwordHash"]) == 60
@@ -2823,7 +3049,13 @@ def test_runtime_dispatch_matches_seeded_endpoints(seeded_db):
 
     health_response = client.get("/api/health")
     assert health_response.status_code == 200
-    assert health_response.json() == {"status": "ok"}
+    health_payload = health_response.json()
+    assert health_payload["status"] == "healthy"
+    assert {"api", "database", "deployment_registry", "public_reference", "openapi"} <= {
+        dependency["name"]
+        for dependency in health_payload["dependencies"]
+    }
+    assert health_payload["summary"]["public_route_count"] >= 1
 
 
 def test_runtime_dispatch_can_echo_path_parameters_from_the_route(empty_db):
@@ -3175,7 +3407,7 @@ def test_admin_can_export_endpoint_bundle(empty_db):
 
     bundle = export_response.json()
     assert bundle["schema_version"] == 1
-    assert bundle["product"] == "Mockingbird"
+    assert bundle["product"] == "Artificer"
     assert len(bundle["endpoints"]) == 1
 
     exported_endpoint = bundle["endpoints"][0]
@@ -3266,7 +3498,7 @@ def test_admin_endpoint_import_supports_upsert_dry_run_and_apply(empty_db):
     bundle_payload = {
         "bundle": {
             "schema_version": 1,
-            "product": "Mockingbird",
+            "product": "Artificer",
             "exported_at": "2026-03-17T00:00:00Z",
             "endpoints": [
                 {
@@ -3422,6 +3654,71 @@ def test_admin_endpoint_import_supports_upsert_dry_run_and_apply(empty_db):
     assert imported_endpoints[1]["enabled"] is False
 
 
+def test_admin_endpoint_import_reports_reserved_health_routes_as_row_errors(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    response = client.post(
+        "/api/admin/endpoints/import",
+        json={
+            "bundle": {
+                "schema_version": 1,
+                "product": "Artificer",
+                "exported_at": "2026-03-19T00:00:00Z",
+                "endpoints": [
+                    {
+                        **_endpoint_payload(name="Legacy Health", path="/api/health"),
+                        "slug": "health",
+                        "category": "system",
+                        "tags": ["system"],
+                        "summary": "Health check",
+                    },
+                    {
+                        **_endpoint_payload(name="Importable route", path="/api/importable"),
+                        "slug": "importable-route",
+                    },
+                ],
+            },
+            "mode": "upsert",
+            "dry_run": False,
+            "confirm_replace_all": False,
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["applied"] is False
+    assert response.json()["has_errors"] is True
+    assert response.json()["summary"] == {
+        "endpoint_count": 2,
+        "create_count": 1,
+        "update_count": 0,
+        "delete_count": 0,
+        "skip_count": 0,
+        "error_count": 1,
+    }
+    assert response.json()["operations"] == [
+        {
+            "action": "error",
+            "name": "Legacy Health",
+            "method": "GET",
+            "path": "/api/health",
+            "detail": "The /api/health path is reserved for the system health endpoint.",
+        },
+        {
+            "action": "create",
+            "name": "Importable route",
+            "method": "GET",
+            "path": "/api/importable",
+            "detail": None,
+        },
+    ]
+
+    list_response = client.get("/api/admin/endpoints", headers=headers)
+    assert list_response.status_code == 200
+    assert list_response.json() == []
+
+
 def test_admin_endpoint_import_replace_all_requires_confirmation_and_deletes_missing_routes(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)
@@ -3468,7 +3765,7 @@ def test_admin_endpoint_import_replace_all_requires_confirmation_and_deletes_mis
     replace_bundle = {
         "bundle": {
             "schema_version": 1,
-            "product": "Mockingbird",
+            "product": "Artificer",
             "exported_at": "2026-03-17T00:00:00Z",
             "endpoints": [
                 {
@@ -3614,7 +3911,7 @@ def test_admin_endpoint_import_replace_all_deletes_runtime_history_for_removed_r
         json={
             "bundle": {
                 "schema_version": 1,
-                "product": "Mockingbird",
+                "product": "Artificer",
                 "exported_at": "2026-03-19T00:00:00Z",
                 "endpoints": [
                     {
@@ -3689,7 +3986,7 @@ def test_admin_endpoint_import_plans_against_catalogs_beyond_the_first_thousand_
     bundle = {
         "bundle": {
             "schema_version": 1,
-            "product": "Mockingbird",
+            "product": "Artificer",
             "exported_at": "2026-03-17T00:00:00Z",
             "endpoints": [
                 {

@@ -1,6 +1,10 @@
 import type { Endpoint, RouteDeployment, RouteImplementation } from "../types/endpoints";
+import {
+  resolveRuntimeRoutePublicationStatus,
+  routePublicationColor,
+} from "./routePublicationStatus";
 
-export type RouteLiveRequestMode = "disabled" | "legacy_mock" | "live_active" | "live_disabled";
+export type RouteLiveRequestMode = "disabled" | "legacy_mock" | "live_active" | "live_disabled" | "draft_only";
 
 export interface RouteTestState {
   hasRuntimeHistory: boolean;
@@ -20,14 +24,19 @@ export interface RouteTestState {
 }
 
 export function buildRouteTestState(
-  endpoint: Pick<Endpoint, "enabled">,
+  endpoint: Pick<Endpoint, "enabled" | "publication_status">,
   currentImplementation: Pick<RouteImplementation, "id" | "is_draft" | "version"> | null | undefined,
-  deployments: Array<Pick<RouteDeployment, "environment" | "implementation_id" | "is_active">>,
+  deployments: Array<Pick<RouteDeployment, "id" | "environment" | "implementation_id" | "is_active">>,
 ): RouteTestState {
+  const publicationStatus = resolveRuntimeRoutePublicationStatus(endpoint, currentImplementation, deployments);
   const activeDeployment = deployments.find((deployment) => deployment.is_active) ?? null;
-  const hasDeploymentHistory = deployments.length > 0;
-  const hasSavedImplementation = currentImplementation?.id !== null && currentImplementation?.id !== undefined;
-  const hasRuntimeHistory = hasSavedImplementation || hasDeploymentHistory;
+  const activeEnvironment = activeDeployment?.environment ?? publicationStatus.active_deployment_environment ?? "production";
+  const activeImplementationId = activeDeployment?.implementation_id ?? publicationStatus.active_implementation_id ?? null;
+  const hasDeploymentHistory = publicationStatus.has_deployment_history || deployments.length > 0;
+  const hasSavedImplementation =
+    publicationStatus.has_saved_implementation ||
+    (currentImplementation?.id !== null && currentImplementation?.id !== undefined);
+  const hasRuntimeHistory = publicationStatus.has_runtime_history || hasSavedImplementation || hasDeploymentHistory;
 
   let liveMode: RouteLiveRequestMode;
   let liveStatusLabel: string;
@@ -36,37 +45,42 @@ export function buildRouteTestState(
   let liveSummary: string;
   let executionsEmptyState: string;
 
-  if (!endpoint.enabled) {
+  if (publicationStatus.code === "disabled") {
     liveMode = "disabled";
-    liveStatusLabel = "Disabled";
-    liveStatusColor = "error";
+    liveStatusLabel = publicationStatus.label;
+    liveStatusColor = routePublicationColor(publicationStatus);
     liveHeadline = activeDeployment ? "Route disabled over live config" : "Route disabled";
     liveSummary = activeDeployment
-      ? `A ${activeDeployment.environment} deployment exists, but disabled routes still return 404 until the route is re-enabled.`
+      ? `A ${activeEnvironment} deployment exists, but disabled routes still return 404 until the route is re-enabled.`
       : hasRuntimeHistory
         ? "This route has saved runtime history, but the route definition is disabled, so live/public requests return 404."
         : "This route is disabled, so live/public requests return 404 until you re-enable it.";
     executionsEmptyState = "This route is disabled, so live/public requests currently return 404. Contract previews remain available.";
-  } else if (activeDeployment) {
+  } else if (publicationStatus.code === "published_live") {
     liveMode = "live_active";
-    liveStatusLabel = "Published live";
-    liveStatusColor = "accent";
-    liveHeadline = `Implementation ${activeDeployment.implementation_id} is live`;
-    liveSummary = `Live/public requests execute the active ${activeDeployment.environment} deployment and can create execution traces below.`;
-    executionsEmptyState = `No live executions yet. Send a public request from the route tester or another client to create the first ${activeDeployment.environment} trace.`;
-  } else if (hasRuntimeHistory) {
+    liveStatusLabel = publicationStatus.label;
+    liveStatusColor = routePublicationColor(publicationStatus);
+    liveHeadline = `Implementation ${activeImplementationId ?? "current"} is live`;
+    liveSummary = `Live/public requests execute the active ${activeEnvironment} deployment and can create execution traces below.`;
+    executionsEmptyState = `No live executions yet. Send a public request from the route tester or another client to create the first ${activeEnvironment} trace.`;
+  } else if (publicationStatus.code === "live_disabled") {
     liveMode = "live_disabled";
-    liveStatusLabel = "Not live";
-    liveStatusColor = "warning";
-    liveHeadline = hasDeploymentHistory ? "No active deployment" : "Draft only";
-    liveSummary = hasDeploymentHistory
-      ? "This route has entered the live-runtime path, but no deployment is currently active. Live/public requests return 404 until you publish again."
-      : "This route has a saved flow draft but no active deployment. Live/public requests return 404 until you publish a flow implementation.";
+    liveStatusLabel = publicationStatus.label;
+    liveStatusColor = routePublicationColor(publicationStatus);
+    liveHeadline = "No active deployment";
+    liveSummary = "This route has entered the live-runtime path, but no deployment is currently active. Live/public requests return 404 until you publish again.";
+    executionsEmptyState = "No live executions yet because this route does not currently have an active deployment.";
+  } else if (publicationStatus.code === "draft_only") {
+    liveMode = "draft_only";
+    liveStatusLabel = publicationStatus.label;
+    liveStatusColor = routePublicationColor(publicationStatus);
+    liveHeadline = "Draft only";
+    liveSummary = "This route has a saved flow draft but no active deployment. Live/public requests return 404 until you publish a flow implementation.";
     executionsEmptyState = "No live executions yet because this route does not currently have an active deployment.";
   } else {
     liveMode = "legacy_mock";
-    liveStatusLabel = "Legacy mock";
-    liveStatusColor = "secondary";
+    liveStatusLabel = publicationStatus.label;
+    liveStatusColor = routePublicationColor(publicationStatus);
     liveHeadline = "Schema-driven public mock";
     liveSummary = "This route has not entered the live-runtime lifecycle yet. Live/public requests still use the schema-driven legacy mock path.";
     executionsEmptyState = "Legacy mock requests do not create live execution traces. Publish a flow implementation to start collecting runtime history.";
@@ -82,9 +96,9 @@ export function buildRouteTestState(
     if (currentImplementation.is_draft === false) {
       currentDraftBadgeColor = "accent";
       currentDraftBadgeLabel = "Published base";
-      if (activeDeployment && activeDeployment.implementation_id === currentImplementation.id) {
+      if (activeImplementationId !== null && activeImplementationId === currentImplementation.id) {
         draftHeadline = "Published base matches live";
-        draftSummary = `The latest saved implementation is already serving the active ${activeDeployment.environment} deployment.`;
+        draftSummary = `The latest saved implementation is already serving the active ${activeEnvironment} deployment.`;
       } else if (hasDeploymentHistory) {
         draftHeadline = "Published base saved";
         draftSummary = "The latest saved implementation is not an editable draft, but no deployment is currently active.";
@@ -95,9 +109,9 @@ export function buildRouteTestState(
     } else {
       currentDraftBadgeColor = "warning";
       currentDraftBadgeLabel = "Draft";
-      if (activeDeployment) {
+      if (activeImplementationId !== null) {
         draftHeadline = `Draft v${currentImplementation.version} is ahead of live`;
-        draftSummary = `The latest saved draft is not deployed. Live/public requests still use implementation ${activeDeployment.implementation_id} until you publish again.`;
+        draftSummary = `The latest saved draft is not deployed. Live/public requests still use implementation ${activeImplementationId} until you publish again.`;
       } else if (hasDeploymentHistory) {
         draftHeadline = `Draft v${currentImplementation.version} is saved`;
         draftSummary = "The latest saved draft is editable, but live traffic is disabled until a deployment is published again.";

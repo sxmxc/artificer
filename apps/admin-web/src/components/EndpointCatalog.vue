@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { Endpoint } from "../types/endpoints";
+import { resolveRoutePublicationStatus, routePublicationColor } from "../utils/routePublicationStatus";
 
 const ITEMS_PER_PAGE = 8;
 
@@ -25,7 +26,7 @@ const emit = defineEmits<{
 }>();
 
 const search = ref("");
-const statusFilter = ref<"all" | "live" | "disabled">("all");
+const statusFilter = ref<"all" | "live" | "not_live" | "disabled">("all");
 const methodFilter = ref("all");
 const currentPage = ref(1);
 
@@ -45,7 +46,11 @@ const filteredEndpoints = computed(() =>
 
     const matchesStatus =
       statusFilter.value === "all" ||
-      (statusFilter.value === "live" ? endpoint.enabled : !endpoint.enabled);
+      (statusFilter.value === "live"
+        ? resolveRoutePublicationStatus(endpoint).code === "published_live"
+        : statusFilter.value === "disabled"
+          ? resolveRoutePublicationStatus(endpoint).code === "disabled"
+          : ["legacy_mock", "draft_only", "live_disabled"].includes(resolveRoutePublicationStatus(endpoint).code));
 
     const matchesMethod = methodFilter.value === "all" || endpoint.method === methodFilter.value;
 
@@ -109,7 +114,7 @@ watch(
       </template>
 
       <v-card-title>Routes</v-card-title>
-      <v-card-subtitle>Search, filter, and jump between live routes.</v-card-subtitle>
+      <v-card-subtitle>Search, filter, and jump between routes by publication state.</v-card-subtitle>
 
       <template #append>
         <div class="d-flex ga-2">
@@ -139,6 +144,7 @@ watch(
         <v-chip-group v-model="statusFilter" color="secondary" mandatory selected-class="text-secondary">
           <v-chip value="all" filter variant="outlined">All</v-chip>
           <v-chip value="live" filter variant="outlined">Live</v-chip>
+          <v-chip value="not_live" filter variant="outlined">Not live</v-chip>
           <v-chip value="disabled" filter variant="outlined">Disabled</v-chip>
         </v-chip-group>
 
@@ -205,13 +211,13 @@ watch(
               <div class="catalog-item-actions">
                 <v-chip
                   class="catalog-status-chip"
-                  :color="endpoint.enabled ? 'accent' : 'error'"
+                  :color="routePublicationColor(resolveRoutePublicationStatus(endpoint))"
                   density="compact"
                   label
                   size="small"
                   variant="tonal"
                 >
-                  {{ endpoint.enabled ? "Live" : "Disabled" }}
+                  {{ resolveRoutePublicationStatus(endpoint).label }}
                 </v-chip>
                 <v-btn
                   v-if="allowDuplicate !== false"

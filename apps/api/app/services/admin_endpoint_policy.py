@@ -8,6 +8,12 @@ from fastapi import HTTPException, status
 PRIVATE_ADMIN_PREFIX = "/api/admin"
 PUBLIC_REFERENCE_PATH = "/api/reference.json"
 PUBLIC_ROOT_PATH = "/api"
+PUBLIC_HEALTH_PATH = "/api/health"
+RESERVED_PUBLIC_PATHS = {
+    PUBLIC_ROOT_PATH,
+    PUBLIC_REFERENCE_PATH,
+    PUBLIC_HEALTH_PATH,
+}
 PATH_PARAMETER_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_-]*)\}")
 
 
@@ -22,6 +28,10 @@ def normalize_endpoint_path(path: str) -> str:
     return normalized_path or "/"
 
 
+def is_reserved_public_path(path: str) -> bool:
+    return normalize_endpoint_path(path) in RESERVED_PUBLIC_PATHS
+
+
 def validate_endpoint_path(path: str) -> None:
     if not path.startswith("/api"):
         raise HTTPException(
@@ -32,13 +42,19 @@ def validate_endpoint_path(path: str) -> None:
     if path == PUBLIC_ROOT_PATH:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="The /api root is reserved for the public landing page.",
+            detail="The /api root is reserved for the public API namespace.",
         )
 
     if path == PUBLIC_REFERENCE_PATH:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="The /api/reference.json path is reserved for the public reference feed.",
+        )
+
+    if path == PUBLIC_HEALTH_PATH:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="The /api/health path is reserved for the system health endpoint.",
         )
 
     if path == PRIVATE_ADMIN_PREFIX or path.startswith(f"{PRIVATE_ADMIN_PREFIX}/"):

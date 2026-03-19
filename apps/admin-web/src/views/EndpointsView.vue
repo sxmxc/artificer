@@ -40,6 +40,10 @@ import type {
   RouteImplementation,
 } from "../types/endpoints";
 import { normalizeRouteFlowDefinition, serializeRouteFlowDefinition } from "../utils/routeFlow";
+import {
+  resolveRuntimeRoutePublicationStatus,
+  routePublicationColor,
+} from "../utils/routePublicationStatus";
 import { buildRouteTestState } from "../utils/routeTestState";
 import {
   buildPayload,
@@ -136,6 +140,11 @@ const duplicateSourceId = computed(() => {
 
 const selectedEndpoint = computed(() =>
   endpointId.value ? endpoints.value.find((endpoint) => endpoint.id === endpointId.value) ?? null : null,
+);
+const selectedPublicationStatus = computed(() =>
+  selectedEndpoint.value
+    ? resolveRuntimeRoutePublicationStatus(selectedEndpoint.value, currentImplementation.value, deployments.value)
+    : null,
 );
 const selectedEndpointSyncKey = computed(() =>
   selectedEndpoint.value ? `${selectedEndpoint.value.id}:${selectedEndpoint.value.updated_at}` : null,
@@ -1132,7 +1141,7 @@ async function exportRoutes(): Promise<void> {
       const link = document.createElement("a");
       const exportDate = bundle.exported_at ? bundle.exported_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
       link.href = url;
-      link.download = `mockingbird-endpoints-${exportDate}.json`;
+      link.download = `artificer-endpoints-${exportDate}.json`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1273,12 +1282,12 @@ const activeTitle = computed(() => {
                         </v-chip>
                         <v-chip
                           v-if="selectedEndpoint"
-                          :color="selectedEndpoint.enabled ? 'accent' : 'error'"
+                          :color="selectedPublicationStatus ? routePublicationColor(selectedPublicationStatus) : 'secondary'"
                           label
                           size="small"
                           variant="tonal"
                         >
-                          {{ selectedEndpoint.enabled ? "Live" : "Disabled" }}
+                          {{ selectedPublicationStatus?.label ?? "Unknown" }}
                         </v-chip>
                         <v-chip v-if="selectedEndpoint?.category" color="secondary" label size="small" variant="tonal">
                           {{ selectedEndpoint.category }}
@@ -1730,7 +1739,7 @@ const activeTitle = computed(() => {
       <v-card class="workspace-card">
         <v-card-item>
           <v-card-title>Import routes</v-card-title>
-          <v-card-subtitle>Preview a native Mockingbird bundle before applying it to this catalog.</v-card-subtitle>
+          <v-card-subtitle>Preview a native Artificer bundle before applying it to this catalog.</v-card-subtitle>
         </v-card-item>
 
         <v-divider />

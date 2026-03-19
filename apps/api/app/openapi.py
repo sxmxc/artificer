@@ -16,6 +16,10 @@ from app.services.schema_contract import (
 
 
 BODY_METHODS = {"post", "put", "patch"}
+OPENAPI_DESCRIPTION = (
+    "Artificer API publishes a live OpenAPI document generated from active deployments plus legacy routes that have"
+    " not entered the live runtime yet."
+)
 
 
 def _schema_or_empty(schema: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -114,26 +118,21 @@ def _build_operation(endpoint: Any) -> Dict[str, Any]:
     return operation
 
 
-def get_openapi(
-    app: FastAPI,
-    settings: Settings,
-    original_openapi: Callable[[], Dict[str, Any]],
+def build_public_openapi_document(
+    *,
+    title: str,
+    version: str,
+    endpoints: List[Any],
 ) -> Dict[str, Any]:
-    if not settings.enable_openapi:
-        return original_openapi()
-
     openapi: Dict[str, Any] = {
         "openapi": "3.0.3",
         "info": {
-            "title": app.title or "Mock API",
-            "version": app.version or "0.0.0",
-            "description": "Mockingbird publishes a live OpenAPI document generated from active deployments plus legacy routes that have not entered the live runtime yet.",
+            "title": title or "Artificer API",
+            "version": version or "0.0.0",
+            "description": OPENAPI_DESCRIPTION,
         },
         "paths": {},
     }
-
-    with session_scope() as session:
-        endpoints = list_public_endpoints(session, limit=1000)
 
     for endpoint in endpoints:
         path = endpoint.path if endpoint.path.startswith("/") else f"/{endpoint.path}"
@@ -142,3 +141,21 @@ def get_openapi(
         operations[method] = _build_operation(endpoint)
 
     return openapi
+
+
+def get_openapi(
+    app: FastAPI,
+    settings: Settings,
+    original_openapi: Callable[[], Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not settings.enable_openapi:
+        return original_openapi()
+
+    with session_scope() as session:
+        endpoints = list_public_endpoints(session, limit=1000)
+
+    return build_public_openapi_document(
+        title=app.title or "Artificer API",
+        version=app.version or "0.0.0",
+        endpoints=endpoints,
+    )

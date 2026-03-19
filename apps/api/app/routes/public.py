@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.db import session_scope
+from app.services.api_health import build_api_health
 from app.services.mock_generation import preview_from_schema
 from app.services.public_routes import list_legacy_fallback_endpoints
 from app.services.route_runtime import execute_deployed_route_request
@@ -121,6 +122,18 @@ async def _parse_json_request_body(request: Request) -> Any:
         return json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
+
+
+@router.get("/health", include_in_schema=False)
+async def health() -> Response:
+    payload = await run_in_threadpool(build_api_health)
+    status_code = 503 if payload.status == "unhealthy" else 200
+    return Response(
+        status_code=status_code,
+        content=payload.model_dump_json(),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

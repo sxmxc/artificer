@@ -20,10 +20,11 @@ make up
 ```
 
 3. Visit the surfaces:
-- Public API landing page: http://localhost:8000
+- Public API status page: http://localhost:8000/status
+- System health endpoint: http://localhost:8000/api/health
 - Admin UI: http://localhost:3000
 - OpenAPI JSON: http://localhost:8000/openapi.json
-- API docs: http://localhost:8000/docs
+- API docs: http://localhost:8000/docs and http://localhost:8000/redoc
 
 ## Local production-like mode
 
@@ -33,7 +34,7 @@ If you want to run the checked-out repo in a production-like local mode instead 
 make up-prod-local
 ```
 
-That command uses [docker-compose.prod-local.yml](/home/devadmin/projects/urban-octo-bassoon/docker-compose.prod-local.yml), which:
+That command uses [docker-compose.prod-local.yml](/home/devadmin/projects/artificer/docker-compose.prod-local.yml), which:
 
 - builds the Dockerfiles' `runtime` targets from your local source tree
 - starts the API through `start.prod.sh` without `uvicorn --reload`
@@ -64,10 +65,10 @@ make clean-prod-local
 - The frontend startup script now hashes `package-lock.json` and refreshes the Dockerized dependency volume automatically when the lockfile changes, which helps keep image/runtime dependencies isolated from host `node_modules`.
 - For remote or domain-based frontend access, set `FRONTEND_ALLOWED_HOSTS` in `.env` to a comma-separated list such as `localhost,127.0.0.1,docker01.example.internal`.
 - The frontend dev proxy target is configurable through `FRONTEND_DEV_PROXY_TARGET`; Docker should point it at `http://api:8000`.
+- The Swagger UI and ReDoc docs pages use a dedicated CSP so their inline bootstrap scripts and CDN assets load correctly.
 - Postgres health checks now target the configured application database instead of the default user name.
 - `make down` removes the named Docker volumes, which is useful if you want a completely fresh database bootstrap and frontend dependency install.
 - Alembic config and revisions live under `apps/api/migrations/` inside the API app because that path is available inside the Docker build context.
-- Approved public landing artwork can be dropped into `apps/api/static/landing/` as `hero-top.*` and `hero-bottom.*`; a single tall `hero.*` asset remains supported as a fallback.
 
 ## Running tests
 
@@ -92,6 +93,8 @@ docker compose ps --format json
 curl -s http://localhost:8000/api/health
 curl -I -s http://localhost:3000
 ```
+
+The `/api/health` response is now system-owned and returns dependency-level JSON for the API process, database, deployment registry, public reference generation, and OpenAPI generation.
 
 If those checks fail or a required service is missing, start only what is needed. For agent/browser work, prefer detached startup over a foreground `make up` session:
 

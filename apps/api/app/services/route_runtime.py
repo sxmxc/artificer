@@ -2250,6 +2250,14 @@ def _load_compiled_routes(session: Session) -> list[CompiledDeployedRoute]:
     return _compiled_route_cache
 
 
+def inspect_deployment_registry(session: Session) -> dict[str, int]:
+    compiled_routes = _load_compiled_routes(session)
+    return {
+        "compiled_route_count": len(compiled_routes),
+        "live_route_count": len({compiled.route_id for compiled in compiled_routes}),
+    }
+
+
 def match_deployed_route(
     session: Session,
     request_path: str,

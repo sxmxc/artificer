@@ -1,5 +1,20 @@
 # DECISIONS
 
+## 2026-03-19: Standardize the platform brand as Artificer
+- **Brand architecture**: Use `Artificer` as the umbrella platform name, `Artificer API` for the public/runtime/backend surface, and `Artificer Studio` for the private admin application.
+- **Shared assets**: Replace the old mascot-specific brand files with a single shared `icon.svg` mark used by the public status page, admin shell, and favicon surfaces.
+- **Published artifacts**: Export route bundles as `Artificer`, use the GitHub repo slug `sxmxc/artificer`, and publish GHCR runtime images as `ghcr.io/sxmxc/artificer-api` and `ghcr.io/sxmxc/artificer-studio`.
+
+## 2026-03-19: Route publication status and API health are backend-owned system state
+- **Publication model**: Compute route publication state from `EndpointDefinition.enabled` plus runtime implementation/deployment records, and expose that shared `publication_status` model to both admin and public read surfaces instead of inferring status from `enabled` alone in the browser.
+- **Operational health**: Treat `/api/health` as a reserved system endpoint with dependency-by-dependency checks for the API process, database, deployment registry, public reference generation, and OpenAPI generation.
+- **Public status surface**: Use the shared publication-state model on `/status` so published routes show whether they are served by the live runtime or legacy mock path, while keeping unpublished or disabled routes off the public reference feed.
+
+## 2026-03-19: Public route catalog now lives on `/status`, not `/`
+- **Public surface**: Remove the old branded landing page from `/` and `/api`; the browser-facing root `/` should redirect to `/status`, while `/api` itself should return no content instead of presenting a generic homepage for enterprise deployments.
+- **Status framing**: Keep the existing live-route quick reference available, but move it to `/status` and frame it as an API status surface with current health/context links instead of marketing copy.
+- **Shared source**: Continue driving `/status`, `/api/reference.json`, and `/openapi.json` from the same shared public-route selector so the human-facing status page stays aligned with machine-facing contract surfaces.
+
 ## 2026-03-19: Connection connector type is immutable after creation
 - **Runtime safety**: Treat `Connection.connector_type` as a stable identity property so existing flow nodes bound by `connection_id` cannot be silently retargeted from `http` to `postgres` (or vice versa) by update calls.
 - **Surface parity**: Keep the admin API aligned with the Flow connection dialog, which already treats connector type as immutable during edits.
@@ -135,15 +150,15 @@
 - **Rail ergonomics**: Treat the endpoint catalog as a bounded navigation rail on desktop, with its own vertical scroll area, rather than letting long lists extend the whole page.
 - **Pagination scope**: Keep catalog pagination client-side after filtering so the rail stays lightweight while the backend remains focused on endpoint CRUD and runtime concerns.
 
-## 2026-03-15: GitHub repository rename to Mockingbird
-- **Canonical repo slug**: Treat `sxmxc/mockingbird` as the source-of-truth GitHub repository and update local git remotes plus deploy/docs references accordingly.
-- **Published image names**: Because runtime image names follow `ghcr.io/<owner>/<repo>-<image>`, the documented GHCR targets now resolve to `ghcr.io/sxmxc/mockingbird-api` and `ghcr.io/sxmxc/mockingbird-admin-web`.
+## 2026-03-15: GitHub repository naming for Artificer
+- **Canonical repo slug**: Treat `sxmxc/artificer` as the source-of-truth GitHub repository and update local git remotes plus deploy/docs references accordingly.
+- **Published image names**: Use explicit product image names rather than deriving them from the repo slug, so the documented GHCR targets resolve to `ghcr.io/sxmxc/artificer-api` and `ghcr.io/sxmxc/artificer-studio`.
 
 ## 2026-03-15: CI smoke-test env bootstrap
 - **Workflow bootstrap**: Have the Docker smoke test create `.env` from `.env.example` before running Compose so CI behaves like a clean developer checkout without depending on ignored local files.
 
-## 2026-03-15: Mockingbird public surface and brand
-- **Product name**: Present the system publicly as Mockingbird, including a shared mascot SVG used as the primary logo/favicon in the admin shell and public API landing page.
+## 2026-03-15: Artificer public surface and brand
+- **Product name**: Present the system publicly as Artificer, with Artificer API and Artificer Studio as the runtime/admin surfaces and a shared `icon.svg` mark used as the primary logo/favicon.
 - **Public homepage**: Add a branded landing page at `/` and `/api` plus a live `/api/reference.json` feed so the public API has a human-friendly homepage that stays aligned with the DB-backed catalog.
 - **Generator modes**: Extend response generation to support three authoring modes per node: fixed/static, true random, and mocking-random.
 - **Docker/frontend isolation**: Keep the frontend container's dependency tree isolated in Docker-managed volumes and refresh it automatically from `package-lock.json` changes instead of depending on host `node_modules`.
@@ -249,7 +264,7 @@
 - **Backend bookkeeping**: Keep `slug` on the backend model for seed/import/admin bookkeeping, but auto-generate and de-duplicate it from the route name during admin create/update requests.
 - **Duplication flow**: Make route duplication adjust the visible name/path only; the internal slug should follow from the copied name instead of being edited directly.
 
-## 2026-03-16: Mockingbird voice on the public site and in mocking-mode data
+## 2026-03-16: Artificer voice on the public site and in mocking-mode data
 - **Hero tone**: Keep the public homepage headline playful and slightly irreverent, and restore the small warning callout so the landing page feels branded rather than like a generic API catalog.
 - **Mocking-mode copy**: Let `mocking` generation sound sharper and more sarcastic than plain random mode, while keeping the content contract-safe, deterministic under seeds, and free of targeted abuse.
 
@@ -274,7 +289,7 @@
 - **Publishing behavior**: Generate OpenAPI `parameters` from `x-request.path` and `x-request.query`, keep `requestBody` sourced only from the root body schema, and strip `x-request` from public request-schema/reference output so public consumers see a clean contract instead of builder metadata.
 
 ## 2026-03-17: Native endpoint catalog import/export
-- **Backup format**: Use a Mockingbird-native JSON bundle with `schema_version`, `product`, `exported_at`, and serialized endpoint definitions instead of relying on raw DB dumps or OpenAPI import/export, so backups preserve the full editable route contract.
+- **Backup format**: Use an Artificer-native JSON bundle with `schema_version`, `product`, `exported_at`, and serialized endpoint definitions instead of relying on raw DB dumps or OpenAPI import/export, so backups preserve the full editable route contract.
 - **Identity and slugs**: Match existing routes by normalized `method + path` in v1; keep `slug` internal, include it in the bundle for bookkeeping, and regenerate/de-duplicate it on import rather than exposing it as the user-facing sync key.
 - **Safety rails**: Support `create_only`, `upsert`, and `replace_all` import modes, always offer a dry-run preview, and require explicit confirmation before `replace_all` can delete routes missing from the bundle.
 
@@ -337,10 +352,10 @@
 - **Theme discipline**: Any custom shell/page styling should derive contrast from Vuetify theme tokens instead of hard-coded light-on-dark values, so light and dark mode stay equally legible during future UI polish passes.
 
 ## 2026-03-18: Public/admin security hardening baseline
-- **Landing-page bootstrap**: Never inline live catalog JSON into executable script assignments; embed reference payloads through an escaped `application/json` script block and parse them at runtime so stored endpoint content cannot break out into executable page script.
+- **Status-page bootstrap**: Never inline live catalog JSON into executable script assignments; embed reference payloads through an escaped `application/json` script block and parse them at runtime so stored endpoint content cannot break out into executable page script.
 - **Public routing**: Treat saved public paths as literal text plus explicit `{param}` placeholders, escape static segments before building match regexes, and keep the async catchall's sync DB/sample-generation work off the event loop so runtime traffic does not stall on synchronous SQLModel access.
 - **Admin auth**: Add baseline brute-force protection through per-account lockouts, per-IP throttling, and audit logging of failed/blocked/successful login attempts, while keeping `/api/admin/account/me` partial updates truly partial instead of requiring `username` on every profile edit.
-- **Headers**: Serve baseline browser hardening headers from both the FastAPI app and the admin runtime/dev shells, with CSP tuned separately for the public landing page, JSON API responses, and the Vite dev experience.
+- **Headers**: Serve baseline browser hardening headers from both the FastAPI app and the admin runtime/dev shells, with CSP tuned separately for the public status page, Swagger/ReDoc docs pages, JSON API responses, and the Vite dev experience.
 
 ## 2026-03-18: Route-first platform pivot foundation
 - **Product framing**: Reframe the repo, docs, and admin UI around a route-first API platform rather than a mock-only product, while keeping the existing schema-driven generator as preview/example infrastructure during the transition.

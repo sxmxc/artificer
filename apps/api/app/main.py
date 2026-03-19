@@ -9,7 +9,7 @@ from app.openapi import get_openapi
 
 settings = Settings()
 
-app = FastAPI(title="Mockingbird", version=settings.app_version)
+app = FastAPI(title="Artificer API", version=settings.app_version)
 PUBLIC_CSP = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline'; "
@@ -32,7 +32,26 @@ APP_CSP = (
     "form-action 'self'; "
     "frame-ancestors 'none'"
 )
+DOCS_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+    "img-src 'self' data: https:; "
+    "font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; "
+    "connect-src 'self'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
 API_CSP = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+
+def _html_csp_for_path(path: str) -> str:
+    if path == "/status":
+        return PUBLIC_CSP
+    if path == "/docs" or path.startswith("/docs/") or path == "/redoc":
+        return DOCS_CSP
+    return APP_CSP
 
 
 @app.middleware("http")
@@ -45,7 +64,7 @@ async def add_security_headers(request, call_next):
 
     content_type = response.headers.get("content-type", "")
     if content_type.startswith("text/html"):
-        response.headers.setdefault("Content-Security-Policy", PUBLIC_CSP if request.url.path in {"/", "/api"} else APP_CSP)
+        response.headers.setdefault("Content-Security-Policy", _html_csp_for_path(request.url.path))
     else:
         response.headers.setdefault("Content-Security-Policy", API_CSP)
 

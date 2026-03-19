@@ -4,6 +4,7 @@ import { vuetify } from "../plugins/vuetify";
 import type { Endpoint } from "../types/endpoints";
 
 function createEndpoint(id: number, overrides: Partial<Endpoint> = {}): Endpoint {
+  const enabled = overrides.enabled ?? true;
   return {
     id,
     name: `Endpoint ${id}`,
@@ -14,7 +15,7 @@ function createEndpoint(id: number, overrides: Partial<Endpoint> = {}): Endpoint
     tags: [id % 2 === 0 ? "billing" : "users"],
     summary: null,
     description: null,
-    enabled: true,
+    enabled,
     auth_mode: "none",
     request_schema: {},
     response_schema: {},
@@ -25,6 +26,22 @@ function createEndpoint(id: number, overrides: Partial<Endpoint> = {}): Endpoint
     seed_key: null,
     created_at: "2026-03-15T00:00:00Z",
     updated_at: "2026-03-15T00:00:00Z",
+    publication_status: overrides.publication_status ?? {
+      code: enabled ? "legacy_mock" : "disabled",
+      label: enabled ? "Legacy mock" : "Disabled",
+      tone: enabled ? "secondary" : "error",
+      enabled,
+      is_public: enabled,
+      is_live: false,
+      uses_legacy_mock: enabled,
+      has_saved_implementation: false,
+      has_runtime_history: false,
+      has_deployment_history: false,
+      has_active_deployment: false,
+      active_deployment_environment: null,
+      active_implementation_id: null,
+      active_deployment_id: null,
+    },
     ...overrides,
   };
 }

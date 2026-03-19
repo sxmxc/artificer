@@ -135,11 +135,36 @@ export interface EndpointPayload {
   seed_key: string | null;
 }
 
+export type RoutePublicationStatusCode =
+  | "disabled"
+  | "legacy_mock"
+  | "published_live"
+  | "draft_only"
+  | "live_disabled";
+
+export interface RoutePublicationStatus {
+  code: RoutePublicationStatusCode;
+  label: string;
+  tone: string;
+  enabled: boolean;
+  is_public: boolean;
+  is_live: boolean;
+  uses_legacy_mock: boolean;
+  has_saved_implementation: boolean;
+  has_runtime_history: boolean;
+  has_deployment_history: boolean;
+  has_active_deployment: boolean;
+  active_deployment_environment: string | null;
+  active_implementation_id: number | null;
+  active_deployment_id: number | null;
+}
+
 export interface Endpoint extends Omit<EndpointPayload, "slug"> {
   slug: string;
   id: number;
   created_at: string;
   updated_at: string;
+  publication_status: RoutePublicationStatus;
 }
 
 export type EndpointImportMode = "create_only" | "upsert" | "replace_all";

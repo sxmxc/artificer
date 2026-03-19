@@ -5,10 +5,11 @@ from typing import Any, Iterable
 
 from app.services.mock_generation import preview_from_schema
 from app.services.schema_contract import extract_request_body_schema, sanitize_public_schema
+from app.services.route_status import build_route_publication_status, load_route_publication_facts
 from app.time_utils import utc_now
 
 
-PRODUCT_NAME = "Mockingbird"
+PRODUCT_NAME = "Artificer API"
 PRODUCT_DESCRIPTION = (
     "A route-first API platform whose public routes, samples, and OpenAPI reference stay aligned with active"
     " deployments plus legacy routes that have not entered the live runtime yet."
@@ -47,7 +48,7 @@ def _sample_request(endpoint: Any) -> Any | None:
     )
 
 
-def serialize_public_endpoint(endpoint: Any) -> dict[str, Any]:
+def serialize_public_endpoint(endpoint: Any, *, publication_status: Any) -> dict[str, Any]:
     return {
         "id": endpoint.id,
         "name": endpoint.name,
@@ -68,11 +69,25 @@ def serialize_public_endpoint(endpoint: Any) -> dict[str, Any]:
             identity=f"reference:{endpoint.id}:{endpoint.method}:{endpoint.path}",
         ),
         "updated_at": endpoint.updated_at,
+        "publication_status": publication_status.model_dump(),
     }
 
 
-def build_public_reference(endpoints: Iterable[Any]) -> dict[str, Any]:
-    live_endpoints = [serialize_public_endpoint(endpoint) for endpoint in sorted(endpoints, key=_endpoint_sort_key) if endpoint.enabled]
+def build_public_reference(endpoints: Iterable[Any], *, session: Any | None = None) -> dict[str, Any]:
+    sorted_endpoints = sorted(endpoints, key=_endpoint_sort_key)
+    route_ids = [int(endpoint.id) for endpoint in sorted_endpoints if getattr(endpoint, "id", None) is not None]
+    publication_facts = load_route_publication_facts(session, route_ids) if session is not None else {}
+
+    live_endpoints = []
+    for endpoint in sorted_endpoints:
+        publication_status = build_route_publication_status(
+            endpoint,
+            publication_facts.get(int(getattr(endpoint, "id", 0) or 0)),
+        )
+        if not publication_status.is_public:
+            continue
+        live_endpoints.append(serialize_public_endpoint(endpoint, publication_status=publication_status))
+
     return {
         "product_name": PRODUCT_NAME,
         "description": PRODUCT_DESCRIPTION,

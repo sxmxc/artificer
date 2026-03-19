@@ -54,11 +54,29 @@ class EndpointUpdate(BaseModel):
     seed_key: Optional[str] = None
 
 
+class RoutePublicationStatus(BaseModel):
+    code: str
+    label: str
+    tone: str
+    enabled: bool
+    is_public: bool
+    is_live: bool
+    uses_legacy_mock: bool
+    has_saved_implementation: bool
+    has_runtime_history: bool
+    has_deployment_history: bool
+    has_active_deployment: bool
+    active_deployment_environment: Optional[str] = None
+    active_implementation_id: Optional[int] = None
+    active_deployment_id: Optional[int] = None
+
+
 class EndpointRead(EndpointBase):
     slug: str
     id: int
     created_at: datetime
     updated_at: datetime
+    publication_status: RoutePublicationStatus
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,7 +89,7 @@ class EndpointImportMode(str, Enum):
 
 class EndpointBundle(BaseModel):
     schema_version: int = 1
-    product: str = "Mockingbird"
+    product: str = "Artificer"
     exported_at: datetime
     endpoints: List[EndpointBase] = Field(default_factory=list)
 
@@ -206,6 +224,7 @@ class PublicEndpointReference(BaseModel):
     sample_request: Any = None
     sample_response: Any = None
     updated_at: datetime
+    publication_status: RoutePublicationStatus
 
 
 class PublicReferenceResponse(BaseModel):
@@ -214,6 +233,22 @@ class PublicReferenceResponse(BaseModel):
     endpoint_count: int
     refreshed_at: datetime
     endpoints: List[PublicEndpointReference] = Field(default_factory=list)
+
+
+class ApiDependencyHealth(BaseModel):
+    name: str
+    label: str
+    status: str
+    detail: str
+    latency_ms: Optional[float] = None
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ApiHealthResponse(BaseModel):
+    status: str
+    checked_at: datetime
+    dependencies: List[ApiDependencyHealth] = Field(default_factory=list)
+    summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RouteImplementationUpsert(BaseModel):

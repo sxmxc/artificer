@@ -4,12 +4,12 @@ This file tracks the work needed to bootstrap and evolve the project.
 Read `docs/roadmap.md` alongside this file if you are picking up the next implementation slice.
 
 ## Now
-- [ ] Improve `Flow` authoring ergonomics for large-context nodes and branch editing by reducing inspector vertical sprawl and making reconnect/remove-path flows more intuitive
+- [ ] Continue improving `Flow` authoring ergonomics for large-context nodes by reducing inspector vertical sprawl now that branch reconnect/remove flows live in shared connected-path cards
 
 ## Next
 - [ ] Add advanced inbound auth (API keys, bearer token policies, scopes)
 - [ ] Decide and implement a safe request-body capture/replay policy for execution traces so the `Test` journey can replay more than path/query values
-- [ ] Expand the live `Flow` node set for complex endpoints with `merge/join`, state/variable storage, loop/aggregate behavior, and connector-aware retry/status routing
+- [ ] Break the generic `transform` node into a typed `Data Ops` family for complex endpoints, including candidates like `split`, `merge/join`, collection/state operators, and connector-aware retry/status routing; keep any JavaScript `Code` node behind an explicit sandbox/safety decision
 - [ ] Polish connector UX after browser QA by deduplicating blocked-delete errors and normalizing seeded/demo connector names used in local testing
 
 ## Later
@@ -20,6 +20,9 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Keep `Switch` case drag-connect additive so creating a new case branch does not silently replace the first existing case path
+- [x] Make Flow-canvas rewiring feel direct by replacing occupied outgoing paths on drag-connect, supporting target-side edge-update rewires, and giving node categories distinct visual shapes
+- [x] Consolidate `Flow` branch editing into shared connected-path cards with in-place reconnect/remove controls in both standard and focus inspectors
 - [x] Include empty-body overrides in tester `Request preview` so clearing a body-route textarea shows the live request will send no body
 - [x] Make the tester `Request preview` reflect the saved request contract/schema, including an accurate request-body preview, instead of primarily echoing shared test inputs
 - [x] Fix deployed `Postgres Query` routes so execution-trace persistence no longer throws `500` when connector results include `datetime`-like values

@@ -116,6 +116,25 @@ const detailLine = computed(() => {
   }
 });
 const typeBadge = computed(() => props.data.runtimeType.replaceAll("_", " "));
+const nodeShapeClass = computed(() => {
+  switch (props.data.runtimeType) {
+    case "api_trigger":
+      return "route-flow-node--shape-trigger";
+    case "if_condition":
+    case "switch":
+    case "validate_request":
+      return "route-flow-node--shape-logic";
+    case "http_request":
+    case "postgres_query":
+      return "route-flow-node--shape-connector";
+    case "set_response":
+      return "route-flow-node--shape-terminal-success";
+    case "error_response":
+      return "route-flow-node--shape-terminal-error";
+    default:
+      return "route-flow-node--shape-transform";
+  }
+});
 const sourceHandles = computed<SourceHandleDescriptor[]>(() => {
   switch (props.data.runtimeType) {
     case "if_condition":
@@ -140,6 +159,7 @@ const sourceHandles = computed<SourceHandleDescriptor[]>(() => {
     :class="{
       'route-flow-node--selected': selected,
       'route-flow-node--dimmed': dragging,
+      [nodeShapeClass]: true,
     }"
     :style="{ '--route-flow-node-accent': `rgb(var(--v-theme-${data.color}))` }"
   >
@@ -253,6 +273,34 @@ const sourceHandles = computed<SourceHandleDescriptor[]>(() => {
     transform 0.16s ease,
     box-shadow 0.16s ease,
     border-color 0.16s ease;
+}
+
+.route-flow-node--shape-trigger .route-flow-node__chrome {
+  border-radius: 14px;
+  clip-path: polygon(8% 0, 100% 0, 100% 100%, 8% 100%, 0 50%);
+}
+
+.route-flow-node--shape-logic .route-flow-node__chrome {
+  border-radius: 14px;
+  clip-path: polygon(6% 0, 94% 0, 100% 18%, 100% 82%, 94% 100%, 6% 100%, 0 82%, 0 18%);
+}
+
+.route-flow-node--shape-connector .route-flow-node__chrome {
+  border-radius: 30px;
+}
+
+.route-flow-node--shape-terminal-success .route-flow-node__chrome {
+  border-radius: 12px;
+  clip-path: polygon(0 0, 90% 0, 100% 50%, 90% 100%, 0 100%);
+}
+
+.route-flow-node--shape-terminal-error .route-flow-node__chrome {
+  border-radius: 12px;
+  clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
+}
+
+.route-flow-node--shape-transform .route-flow-node__chrome {
+  border-radius: 18px;
 }
 
 .route-flow-node--selected .route-flow-node__chrome {

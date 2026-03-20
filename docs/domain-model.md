@@ -38,6 +38,8 @@ Current flow contract:
 - Exactly one `set_response` node
 - Optional `error_response` node
 - Current supported node types: `api_trigger`, `validate_request`, `transform`, `if_condition`, `switch`, `http_request`, `postgres_query`, `set_response`, `error_response`
+- `transform` is currently a transitional umbrella node. The roadmap is to introduce typed data-operation nodes over time while preserving backward compatibility for existing saved flow definitions.
+- A future JavaScript `code` node would require a separate sandboxed execution model and is not part of the current safe typed runtime.
 - The live runtime is now branch-aware rather than strictly linear: `if_condition` routes to one `true` and one `false` edge, `switch` routes to one or more `case` edges plus one required `default` edge, and every reachable main-path branch must still eventually lead into `set_response` or a connected `error_response` terminal
 - Mapping-oriented node config values can either resolve a whole value via `{"$ref":"..."}` or interpolate refs inline inside strings with `{{request.path.id}}`, `{{request.body.foo}}`, or `{{state.transform.bar}}`
 - Nodes may also carry editor-only layout metadata such as canvas `position`; the backend runtime ignores that UI metadata and continues to execute from node `type`, `name`, `config`, and `edges`

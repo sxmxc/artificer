@@ -2068,10 +2068,7 @@ function edgeIdToReplaceForConnection(
     }
 
     if (sourceHandle === "case") {
-      const caseEdges = currentFlowDefinition.value.edges.filter(
-        (edge) => edge.source === sourceId && edgeBranchFromExtra(edge.extra) === "case",
-      );
-      return caseEdges.length === 1 ? caseEdges[0]?.id ?? null : null;
+      return null;
     }
 
     return null;

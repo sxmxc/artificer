@@ -20,6 +20,7 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Keep `Switch` case drag-connect additive so creating a new case branch does not silently replace the first existing case path
 - [x] Make Flow-canvas rewiring feel direct by replacing occupied outgoing paths on drag-connect, supporting target-side edge-update rewires, and giving node categories distinct visual shapes
 - [x] Consolidate `Flow` branch editing into shared connected-path cards with in-place reconnect/remove controls in both standard and focus inspectors
 - [x] Include empty-body overrides in tester `Request preview` so clearing a body-route textarea shows the live request will send no body

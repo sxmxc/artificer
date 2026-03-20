@@ -483,6 +483,67 @@ const replaceableSingleOutputFlowDefinition: RouteFlowDefinition = {
   ],
 };
 
+const switchCaseGrowthFlowDefinition: RouteFlowDefinition = {
+  schema_version: 1,
+  nodes: [
+    {
+      id: "trigger",
+      type: "api_trigger",
+      name: "API Trigger",
+      config: {},
+      position: { x: 48, y: 56 },
+    },
+    {
+      id: "switch-1",
+      type: "switch",
+      name: "Switch",
+      config: {
+        value: { $ref: "request.query.tier" },
+      },
+      position: { x: 280, y: 56 },
+    },
+    {
+      id: "transform-1",
+      type: "transform",
+      name: "Transform A",
+      config: {
+        output: {
+          bucket: "a",
+        },
+      },
+      position: { x: 536, y: 24 },
+    },
+    {
+      id: "transform-2",
+      type: "transform",
+      name: "Transform B",
+      config: {
+        output: {
+          bucket: "b",
+        },
+      },
+      position: { x: 536, y: 160 },
+    },
+    {
+      id: "response",
+      type: "set_response",
+      name: "Set Response",
+      config: {
+        body: {
+          status: "ok",
+        },
+        status_code: 200,
+      },
+      position: { x: 812, y: 88 },
+    },
+  ],
+  edges: [
+    { source: "trigger", target: "switch-1" },
+    { source: "switch-1", target: "transform-1", extra: { branch: "case", case_value: "vip" } },
+    { source: "switch-1", target: "response", extra: { branch: "default" } },
+  ],
+};
+
 function renderEditor(overrideProps: Record<string, unknown> = {}) {
   return render(RouteFlowEditor, {
     props: {
@@ -648,6 +709,35 @@ describe("RouteFlowEditor", () => {
     expect(lastUpdate?.edges).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: "transform-1", target: "response" }),
+      ]),
+    );
+  });
+
+  it("appends a second switch case branch when connecting from the shared case handle", async () => {
+    const view = renderEditor({
+      modelValue: switchCaseGrowthFlowDefinition,
+    });
+
+    const replaceButton = view.container.querySelector(
+      '[data-testid^="emit-connect-replace-edge-switch-1-transform-1"]',
+    );
+    expect(replaceButton).toBeTruthy();
+    await fireEvent.click(replaceButton as Element);
+    await flushPromises();
+
+    const emittedEvents = view.emitted() as Record<string, Array<[RouteFlowDefinition]>>;
+    const updates = emittedEvents["update:modelValue"] ?? [];
+    const lastUpdate = updates.at(-1)?.[0] as RouteFlowDefinition | undefined;
+    const switchCaseEdges = (lastUpdate?.edges ?? []).filter(
+      (edge) => edge.source === "switch-1" && edge.extra?.branch === "case",
+    );
+
+    expect(lastUpdate?.edges).toHaveLength(4);
+    expect(switchCaseEdges).toHaveLength(2);
+    expect(switchCaseEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ target: "transform-1", extra: { branch: "case", case_value: "vip" } }),
+        expect.objectContaining({ target: "transform-2", extra: { branch: "case", case_value: "case-2" } }),
       ]),
     );
   });

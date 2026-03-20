@@ -1,5 +1,11 @@
 # DECISIONS
 
+## 2026-03-20: Generic `transform` is transitional, and future data shaping should move to typed nodes
+- **Node-model direction**: Treat the current `transform` node as a compatibility umbrella rather than the long-term operator-facing model. Future Flow authoring should expose a typed `Data Ops` family instead of one catch-all transform step.
+- **Examples of typed ops**: Candidate nodes include collection/data operators such as `split`, `merge/join`, map/set-style shaping, loop/aggregate helpers, and similar explicit data-movement steps that are easier to reason about in the canvas and runtime.
+- **Runtime safety boundary**: A future JavaScript `Code` node is a separate decision from typed data ops. Do not fold arbitrary code execution into the default live runtime until there is an explicit sandbox, resource-limit, secret-boundary, and observability model.
+- **Migration path**: Keep existing stored `transform` nodes executable for backward compatibility while typed nodes are introduced incrementally in both the editor and `flow_definition`.
+
 ## 2026-03-20: Repo-root VERSION is the single manual version source of truth
 - **Canonical source**: Keep the checked-in repo root `VERSION` file as the manual source of truth for application releases instead of hand-editing version strings across frontend, backend, and Docker build files.
 - **Sync workflow**: Maintain a small repo-local `scripts/versioning.py` helper plus `make version`, `make version-check`, `make set-version`, and `make bump-version` targets to rewrite the downstream consumers in one pass.

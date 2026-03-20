@@ -505,6 +505,8 @@ const selectedNodeOutgoingConnections = computed(() =>
         .filter((edge) => edge.source === selectedCanvasNode.value?.id)
         .map((edge) => ({
           id: edge.id,
+          sourceId: edge.source,
+          sourceLabel: selectedCanvasNode.value?.label ?? edge.source,
           targetId: edge.target,
           targetLabel: canvasNodes.value.find((node) => node.id === edge.target)?.label ?? edge.target,
           branch: typeof edge.data?.extra?.branch === "string" ? edge.data.extra.branch : "",
@@ -721,10 +723,38 @@ const selectedNodePathManagementCopy = computed(() => {
   }
 
   if (node.data.runtimeType === "if_condition" || node.data.runtimeType === "switch") {
-    return "Use branch labels below to steer each path, and remove paths directly if this node has stale links.";
+    return "Reconnect branch paths in place and tune branch metadata without leaving this inspector.";
   }
 
-  return "Review where this node routes next, and remove stale paths without opening Flow info.";
+  return "Reconnect or remove outgoing paths directly from this inspector.";
+});
+
+const reconnectTargetOptionsByEdgeId = computed(() => {
+  const selectedNode = selectedCanvasNode.value;
+  if (!selectedNode) {
+    return new Map<string, Array<{ title: string; value: string }>>();
+  }
+
+  const optionsByEdgeId = new Map<string, Array<{ title: string; value: string }>>();
+
+  selectedNodeOutgoingConnections.value.forEach((connection) => {
+    const definitionWithoutEdge = definitionWithoutEdgeId(connection.id);
+    const options = canvasNodes.value
+      .filter((node) => node.id !== connection.sourceId)
+      .filter((node) => {
+        if (node.id === connection.targetId) {
+          return true;
+        }
+        return !validateRouteFlowConnection(definitionWithoutEdge, connection.sourceId, node.id);
+      })
+      .map((node) => ({
+        title: node.label || node.id,
+        value: node.id,
+      }));
+    optionsByEdgeId.set(connection.id, options);
+  });
+
+  return optionsByEdgeId;
 });
 
 function existingNodeForType(nodeType: RouteFlowNodeType): CanvasNode | null {
@@ -2002,8 +2032,212 @@ function removeConnection(edgeId: string): void {
   commitStructuralDefinition(nextDefinition);
 }
 
+function edgeBranchFromExtra(extra: JsonObject | undefined): string {
+  const rawBranch = typeof extra?.branch === "string" ? extra.branch.trim().toLowerCase() : "";
+  return ["true", "false", "case", "default"].includes(rawBranch) ? rawBranch : "";
+}
+
+function edgeIdToReplaceForConnection(
+  sourceId: string,
+  sourceHandle?: string | null,
+): string | null {
+  const sourceNode = currentFlowDefinition.value.nodes.find((node) => node.id === sourceId);
+  if (!sourceNode) {
+    return null;
+  }
+
+  if (sourceNode.type === "if_condition") {
+    const handleBranch = sourceHandle === "true" || sourceHandle === "false" ? sourceHandle : null;
+    if (!handleBranch) {
+      return null;
+    }
+    return (
+      currentFlowDefinition.value.edges.find(
+        (edge) => edge.source === sourceId && edgeBranchFromExtra(edge.extra) === handleBranch,
+      )?.id ?? null
+    );
+  }
+
+  if (sourceNode.type === "switch") {
+    if (sourceHandle === "default") {
+      return (
+        currentFlowDefinition.value.edges.find(
+          (edge) => edge.source === sourceId && edgeBranchFromExtra(edge.extra) === "default",
+        )?.id ?? null
+      );
+    }
+
+    if (sourceHandle === "case") {
+      const caseEdges = currentFlowDefinition.value.edges.filter(
+        (edge) => edge.source === sourceId && edgeBranchFromExtra(edge.extra) === "case",
+      );
+      return caseEdges.length === 1 ? caseEdges[0]?.id ?? null : null;
+    }
+
+    return null;
+  }
+
+  return currentFlowDefinition.value.edges.find((edge) => edge.source === sourceId)?.id ?? null;
+}
+
+function replacementEdgeExtra(
+  replacedEdge: RouteFlowEdge | null,
+  sourceHandle?: string | null,
+): JsonObject {
+  if (!replacedEdge) {
+    return {};
+  }
+
+  const nextExtra = replacedEdge.extra ? copyJsonValue(replacedEdge.extra) : {};
+  const branch = edgeBranchFromExtra(nextExtra);
+
+  if (sourceHandle === "true" || sourceHandle === "false") {
+    nextExtra.branch = sourceHandle;
+    return nextExtra;
+  }
+
+  if (sourceHandle === "default") {
+    nextExtra.branch = "default";
+    delete nextExtra.case_value;
+    return nextExtra;
+  }
+
+  if (sourceHandle === "case") {
+    nextExtra.branch = "case";
+    if (nextExtra.case_value === undefined) {
+      nextExtra.case_value = "case";
+    }
+    return nextExtra;
+  }
+
+  if (branch === "default") {
+    delete nextExtra.case_value;
+  }
+
+  return nextExtra;
+}
+
+function definitionWithoutEdgeId(edgeId: string): RouteFlowDefinition {
+  return {
+    schema_version: currentFlowDefinition.value.schema_version,
+    extra: currentFlowDefinition.value.extra ? copyJsonValue(currentFlowDefinition.value.extra) : {},
+    nodes: currentFlowDefinition.value.nodes.map((node) => ({
+      ...node,
+      position: node.position ? { ...node.position } : undefined,
+      config: copyJsonValue(node.config),
+      extra: node.extra ? copyJsonValue(node.extra) : {},
+    })),
+    edges: currentFlowDefinition.value.edges
+      .filter((edge) => edge.id !== edgeId)
+      .map((edge) => ({
+        ...edge,
+        extra: edge.extra ? copyJsonValue(edge.extra) : {},
+      })),
+  };
+}
+
+function reconnectConnection(edgeId: string, targetId: string): void {
+  const normalizedTargetId = targetId.trim();
+  if (!normalizedTargetId) {
+    return;
+  }
+
+  const currentConnection = currentFlowDefinition.value.edges.find((edge) => edge.id === edgeId);
+  if (!currentConnection) {
+    return;
+  }
+
+  if (currentConnection.target === normalizedTargetId) {
+    return;
+  }
+
+  const definitionWithoutEdge = definitionWithoutEdgeId(edgeId);
+  const reconnectError = validateRouteFlowConnection(
+    definitionWithoutEdge,
+    currentConnection.source,
+    normalizedTargetId,
+  );
+  if (reconnectError) {
+    return;
+  }
+
+  const nextDefinition: RouteFlowDefinition = {
+    schema_version: definitionWithoutEdge.schema_version,
+    extra: definitionWithoutEdge.extra ? copyJsonValue(definitionWithoutEdge.extra) : {},
+    nodes: definitionWithoutEdge.nodes.map((node) => ({
+      ...node,
+      position: node.position ? { ...node.position } : undefined,
+      config: copyJsonValue(node.config),
+      extra: node.extra ? copyJsonValue(node.extra) : {},
+    })),
+    edges: [
+      ...definitionWithoutEdge.edges.map((edge) => ({
+        ...edge,
+        extra: edge.extra ? copyJsonValue(edge.extra) : {},
+      })),
+      {
+        id: buildRouteFlowEdgeId(definitionWithoutEdge.edges, currentConnection.source, normalizedTargetId),
+        source: currentConnection.source,
+        target: normalizedTargetId,
+        extra: currentConnection.extra ? copyJsonValue(currentConnection.extra) : {},
+      },
+    ],
+  };
+
+  commitStructuralDefinition(nextDefinition, {
+    preserveManualLayout: true,
+  });
+}
+
+function handleEdgeUpdate(event: { edge: { id: string }; connection: VueFlowConnection }): void {
+  const edgeId = event.edge?.id;
+  const targetId = event.connection?.target;
+  if (!edgeId || !targetId) {
+    return;
+  }
+
+  reconnectConnection(edgeId, targetId);
+}
+
 function handleConnect(connection: VueFlowConnection): void {
   if (!connection.source || !connection.target) {
+    return;
+  }
+
+  const replacementEdgeId = edgeIdToReplaceForConnection(connection.source, connection.sourceHandle);
+  if (replacementEdgeId) {
+    const replacedEdge = currentFlowDefinition.value.edges.find((edge) => edge.id === replacementEdgeId) ?? null;
+    const definitionWithoutEdge = definitionWithoutEdgeId(replacementEdgeId);
+    const replacementError = validateRouteFlowConnection(definitionWithoutEdge, connection.source, connection.target);
+    if (replacementError) {
+      return;
+    }
+
+    const nextDefinition: RouteFlowDefinition = {
+      schema_version: definitionWithoutEdge.schema_version,
+      extra: definitionWithoutEdge.extra ? copyJsonValue(definitionWithoutEdge.extra) : {},
+      nodes: definitionWithoutEdge.nodes.map((node) => ({
+        ...node,
+        position: node.position ? { ...node.position } : undefined,
+        config: copyJsonValue(node.config),
+        extra: node.extra ? copyJsonValue(node.extra) : {},
+      })),
+      edges: [
+        ...definitionWithoutEdge.edges.map((edge) => ({
+          ...edge,
+          extra: edge.extra ? copyJsonValue(edge.extra) : {},
+        })),
+        {
+          id: buildRouteFlowEdgeId(definitionWithoutEdge.edges, connection.source, connection.target),
+          source: connection.source,
+          target: connection.target,
+          extra: replacementEdgeExtra(replacedEdge, connection.sourceHandle),
+        },
+      ],
+    };
+    commitStructuralDefinition(nextDefinition, {
+      preserveManualLayout: true,
+    });
     return;
   }
 
@@ -2247,12 +2481,14 @@ onBeforeUnmount(() => {
           v-model:nodes="canvasNodes"
           v-model:edges="canvasEdges"
           class="route-flow-editor__canvas"
+          edges-updatable="target"
           fit-view-on-init
           :min-zoom="0.42"
           :max-zoom="1.75"
           :pan-on-drag="[1]"
           :prevent-scrolling="true"
           @connect="handleConnect"
+          @edge-update="handleEdgeUpdate"
           @init="handleFlowInit"
           @node-click="handleNodeClick"
           @node-drag-stop="handleNodeDragStop"
@@ -2920,30 +3156,9 @@ onBeforeUnmount(() => {
                           @update:model-value="handleIfRightInput(String($event ?? ''))"
                         />
 
-                        <div class="route-flow-editor__snippet-row mt-3">
-                          <span class="text-caption text-medium-emphasis">Branch paths</span>
-                          <div class="text-caption text-medium-emphasis mt-2">
-                            Drag from the <strong>True</strong> and <strong>False</strong> ports on the node, or keep this node
-                            selected and click or drop another palette node to create the next step.
-                          </div>
-                          <div class="d-flex flex-column ga-3 mt-2">
-                            <div
-                              v-for="connection in selectedNodeOutgoingConnections"
-                              :key="connection.id"
-                              class="route-flow-editor__branch-row"
-                            >
-                              <div class="text-body-2 font-weight-medium">{{ connection.targetLabel }}</div>
-                              <v-select
-                                :items="IF_BRANCH_OPTIONS"
-                                item-title="title"
-                                item-value="value"
-                                label="Branch"
-                                :model-value="connection.branch"
-                                :menu-props="FOCUS_SELECT_MENU_PROPS"
-                                @update:model-value="updateIfBranchForEdge(connection.id, String($event ?? ''))"
-                              />
-                            </div>
-                          </div>
+                        <div class="text-caption text-medium-emphasis mt-3">
+                          Drag from the <strong>True</strong> and <strong>False</strong> ports on the node, or use the
+                          <strong>Connected paths</strong> cards below to reconnect and relabel existing branches.
                         </div>
                       </template>
 
@@ -2982,36 +3197,9 @@ onBeforeUnmount(() => {
                           @update:model-value="handleSwitchValueInput(String($event ?? ''))"
                         />
 
-                        <div class="route-flow-editor__snippet-row mt-3">
-                          <span class="text-caption text-medium-emphasis">Branch paths</span>
-                          <div class="text-caption text-medium-emphasis mt-2">
-                            Drag from the <strong>Case</strong> or <strong>Default</strong> ports on the node. Keep Switch
-                            selected and add another node from the palette whenever you want another case path.
-                          </div>
-                          <div class="d-flex flex-column ga-3 mt-2">
-                            <div
-                              v-for="connection in selectedNodeOutgoingConnections"
-                              :key="connection.id"
-                              class="route-flow-editor__branch-row"
-                            >
-                              <div class="text-body-2 font-weight-medium">{{ connection.targetLabel }}</div>
-                              <v-select
-                                :items="SWITCH_BRANCH_OPTIONS"
-                                item-title="title"
-                                item-value="value"
-                                label="Path type"
-                                :model-value="connection.branch"
-                                :menu-props="FOCUS_SELECT_MENU_PROPS"
-                                @update:model-value="updateSwitchBranchMode(connection.id, String($event ?? ''))"
-                              />
-                              <v-text-field
-                                v-if="connection.branch === 'case'"
-                                label="Case value"
-                                :model-value="stringifyFlexibleValue(connection.caseValue)"
-                                @update:model-value="updateSwitchCaseValue(connection.id, String($event ?? ''))"
-                              />
-                            </div>
-                          </div>
+                        <div class="text-caption text-medium-emphasis mt-3">
+                          Drag from the <strong>Case</strong> or <strong>Default</strong> ports on the node, then use the
+                          <strong>Connected paths</strong> cards below to adjust branch mode, case value, or target node.
                         </div>
                       </template>
 
@@ -3312,27 +3500,82 @@ onBeforeUnmount(() => {
                         <div v-if="selectedNodeOutgoingConnections.length === 0" class="text-caption text-medium-emphasis mt-2">
                           This node currently has no outgoing paths.
                         </div>
-                        <div v-else class="d-flex flex-column ga-3 mt-2">
+                        <div v-else class="d-flex flex-column ga-2 mt-2">
                           <div
                             v-for="connection in selectedNodeOutgoingConnections"
                             :key="`manage-${connection.id}`"
-                            class="route-flow-editor__connection-row"
+                            class="route-flow-editor__path-card"
                           >
-                            <div class="text-body-2">
-                              <strong>{{ selectedCanvasNode.label }}</strong>
-                              <span v-if="connection.label" class="text-medium-emphasis"> via {{ connection.label }}</span>
-                              <span class="text-medium-emphasis"> to </span>
-                              <strong>{{ connection.targetLabel }}</strong>
+                            <div class="route-flow-editor__path-card-head">
+                              <div class="text-body-2">
+                                <strong>{{ connection.sourceLabel }}</strong>
+                                <span v-if="connection.label" class="text-medium-emphasis"> via {{ connection.label }}</span>
+                                <span class="text-medium-emphasis"> to </span>
+                                <strong>{{ connection.targetLabel }}</strong>
+                              </div>
+                              <v-btn
+                                color="error"
+                                prepend-icon="mdi-link-variant-remove"
+                                size="small"
+                                variant="text"
+                                @click="removeConnection(connection.id)"
+                              >
+                                Remove path
+                              </v-btn>
                             </div>
-                            <v-btn
-                              color="error"
-                              prepend-icon="mdi-link-variant-remove"
-                              size="small"
-                              variant="text"
-                              @click="removeConnection(connection.id)"
-                            >
-                              Remove path
-                            </v-btn>
+
+                            <div class="route-flow-editor__path-targets">
+                              <span class="text-caption text-medium-emphasis">Next node</span>
+                              <v-menu location="bottom start">
+                                <template #activator="{ props: menuProps }">
+                                  <v-btn
+                                    v-bind="menuProps"
+                                    class="route-flow-editor__path-target-button"
+                                    variant="outlined"
+                                  >
+                                    {{ connection.targetLabel }}
+                                  </v-btn>
+                                </template>
+                                <v-list density="compact">
+                                  <v-list-item
+                                    v-for="target in reconnectTargetOptionsByEdgeId.get(connection.id) ?? []"
+                                    :key="`${connection.id}-target-${target.value}`"
+                                    :active="target.value === connection.targetId"
+                                    :title="target.title"
+                                    @click="reconnectConnection(connection.id, target.value)"
+                                  />
+                                </v-list>
+                              </v-menu>
+                            </div>
+
+                            <v-select
+                              v-if="selectedCanvasNode.data.runtimeType === 'if_condition'"
+                              :items="IF_BRANCH_OPTIONS"
+                              item-title="title"
+                              item-value="value"
+                              label="Branch"
+                              :model-value="connection.branch"
+                              :menu-props="FOCUS_SELECT_MENU_PROPS"
+                              @update:model-value="updateIfBranchForEdge(connection.id, String($event ?? ''))"
+                            />
+
+                            <template v-else-if="selectedCanvasNode.data.runtimeType === 'switch'">
+                              <v-select
+                                :items="SWITCH_BRANCH_OPTIONS"
+                                item-title="title"
+                                item-value="value"
+                                label="Path type"
+                                :model-value="connection.branch"
+                                :menu-props="FOCUS_SELECT_MENU_PROPS"
+                                @update:model-value="updateSwitchBranchMode(connection.id, String($event ?? ''))"
+                              />
+                              <v-text-field
+                                v-if="connection.branch === 'case'"
+                                label="Case value"
+                                :model-value="stringifyFlexibleValue(connection.caseValue)"
+                                @update:model-value="updateSwitchCaseValue(connection.id, String($event ?? ''))"
+                              />
+                            </template>
                           </div>
                         </div>
                       </div>
@@ -4008,17 +4251,7 @@ onBeforeUnmount(() => {
 .route-flow-editor__snippet-row {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-}
-
-.route-flow-editor__branch-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.8rem;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 18px;
-  background: color-mix(in srgb, rgb(var(--v-theme-surface)) 94%, rgb(var(--v-theme-background)) 6%);
+  gap: 0.45rem;
 }
 
 .route-flow-editor__empty-state {
@@ -4041,6 +4274,34 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 18px;
   background: color-mix(in srgb, rgb(var(--v-theme-surface)) 92%, rgb(var(--v-theme-background)) 8%);
+}
+
+.route-flow-editor__path-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 16px;
+  background: color-mix(in srgb, rgb(var(--v-theme-surface)) 93%, rgb(var(--v-theme-background)) 7%);
+}
+
+.route-flow-editor__path-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.route-flow-editor__path-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.route-flow-editor__path-target-button {
+  justify-content: space-between;
+  text-transform: none;
 }
 
 .route-flow-editor__sample-entry {

@@ -28,6 +28,7 @@ The product is intentionally **not** becoming a generic automation builder. It s
 - **Connector-first expansion**: start with `HTTP` and read-only `Postgres`.
 - **API-trigger first**: keep `api_trigger` as the only entry node while the flow UX matures.
 - **Self-hosted first**: local Docker and image-only GHCR deployments remain first-class.
+- **Typed data ops before raw code**: break the generic `transform` step into explicit data-operation nodes over time, and keep any future script/code node behind a separate sandbox decision.
 - **No arbitrary code execution yet**: safe, typed nodes come before script/code nodes.
 
 ## Current Milestone
@@ -71,7 +72,8 @@ Already shipped:
 - dedicated top-level `Connectors` page for shared connection CRUD (create/edit/retire/reactivate/delete) with lightweight `project` / `environment` metadata and in-use delete protections
 - Flow-tab compact connector context (scope/count/refresh + direct link to `Connectors`) while keeping node inspector binding to saved connection ids
 - Flow-tab branch-aware logic editing for first-class `If` / `Switch` nodes
-- Flow node editing now uses the same input/config/output workbench in standard and full-screen modes, with pinned focus-mode previews, schema/table/json preview modes, embedded payload-tree ref pills for common path-template edits, and a focus-toolbar save action that follows the same dirty-state rules as the standard Flow save button
+- Flow node editing now uses the same input/config/output workbench in standard and full-screen modes, with pinned focus-mode previews, schema/table/json preview modes, embedded payload-tree ref pills for common path-template edits, shared connected-path cards for reconnecting or relabeling outgoing edges, and a focus-toolbar save action that follows the same dirty-state rules as the standard Flow save button
+- Flow-canvas rewiring now supports replacement when operators drag from occupied output handles, supports target-side edge retargeting through `edge-update`, and uses distinct node silhouettes by category to improve scanability in larger graphs
 - maintained drag-and-drop for the schema editor and Flow palette, replacing bespoke native `dataTransfer` wiring with shared drag-preview/drop-target infrastructure
 - shared public-route policy across OpenAPI, `/api/reference.json`, and legacy mock fallback so runtime-managed routes stay public only while they still have an active deployment
 - explicit disable-live workflow in the admin API and `Deploy` tab, which deactivates the active deployment without deleting route or implementation history
@@ -80,6 +82,7 @@ Already shipped:
 Still transitional:
 - the public runtime still falls back to the legacy schema-driven mock path for routes that have not yet entered the live-runtime lifecycle
 - the new Vue Flow editor now supports branching plus pinned node-level sample data/preview inspection, but it still leans on raw JSON entry instead of richer non-JSON data-mapping ergonomics
+- the current `transform` node is still a catch-all transitional step; the roadmap is to split it into a typed `Data Ops` family such as `split`, `merge/join`, and related collection/state operators while keeping stored transform definitions backward compatible
 - connector scope remains intentionally metadata-first; flow nodes still bind explicit saved connection ids rather than auto-resolving by environment at runtime
 - OpenAPI and `/api/reference.json` now follow the shared public-route policy for runtime-managed routes, but legacy-only routes still remain public until the product fully cuts over to deployment-only publishing
 - browse telemetry is intentionally derived from recent runtime history in Postgres for now; long-horizon retention, alerting, and time-series offload remain future observability work

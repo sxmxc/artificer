@@ -112,6 +112,8 @@ const executionTelemetryError = ref<string | null>(null);
 const connections = ref<Connection[]>([]);
 const isLoadingConnections = ref(false);
 const activeContractRequestSection = ref<ContractRequestSection>("body");
+const activeContractSchemaTab = ref<ContractSchemaTab>("response");
+const isCatalogCollapsed = ref(false);
 
 let catalogRefreshTimer: number | null = null;
 let pendingCatalogRequest: Promise<void> | null = null;
@@ -159,6 +161,7 @@ const selectedPublicationStatus = computed(() =>
     ? resolveRuntimeRoutePublicationStatus(selectedEndpoint.value, currentImplementation.value, deployments.value)
     : null,
 );
+const canCollapseCatalog = computed(() => props.mode === "edit" && Boolean(selectedEndpoint.value));
 const selectedEndpointSyncKey = computed(() =>
   selectedEndpoint.value ? `${selectedEndpoint.value.id}:${selectedEndpoint.value.updated_at}` : null,
 );
@@ -238,13 +241,6 @@ const canApplyImport = computed(() =>
 );
 const canWriteRoutes = computed(() => auth.canWriteRoutes.value && !auth.mustChangePassword.value);
 const canPreviewRoutes = computed(() => auth.canPreviewRoutes.value && !auth.mustChangePassword.value);
-const activeContractSchemaTab = computed<ContractSchemaTab>(() => {
-  const rawTab = Array.isArray(route.query.contractTab) ? route.query.contractTab[0] : route.query.contractTab;
-  if (rawTab === "request") {
-    return "request";
-  }
-  return "response";
-});
 const contractEditorPath = computed(() => selectedEndpoint.value?.path ?? draft.value.path);
 
 function stripContractFields(source: EndpointDraft): Omit<EndpointDraft, "request_schema" | "response_schema" | "seed_key"> {
@@ -632,6 +628,25 @@ watch(
 );
 
 watch(
+  () => route.query.contractTab,
+  (rawTab) => {
+    const nextTab = Array.isArray(rawTab) ? rawTab[0] : rawTab;
+    activeContractSchemaTab.value = nextTab === "request" ? "request" : "response";
+  },
+  { immediate: true },
+);
+
+watch(
+  canCollapseCatalog,
+  (value) => {
+    if (!value) {
+      isCatalogCollapsed.value = false;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
   createDraftHydrationKey,
   (currentKey, previousKey) => {
     if (props.mode !== "create" || !currentKey || currentKey === previousKey) {
@@ -887,7 +902,17 @@ function setActiveWorkspaceTab(tab: RouteWorkspaceTab | null): void {
   });
 }
 
-function setActiveContractSchemaTab(tab: ContractSchemaTab): void {
+function toggleCatalogCollapsed(): void {
+  if (!canCollapseCatalog.value) {
+    return;
+  }
+
+  isCatalogCollapsed.value = !isCatalogCollapsed.value;
+}
+
+async function setActiveContractSchemaTab(tab: ContractSchemaTab): Promise<void> {
+  activeContractSchemaTab.value = tab;
+
   const nextQuery = { ...route.query };
   if (tab === "response") {
     delete nextQuery.contractTab;
@@ -895,7 +920,7 @@ function setActiveContractSchemaTab(tab: ContractSchemaTab): void {
     nextQuery.contractTab = tab;
   }
 
-  void router.replace({
+  await router.replace({
     query: nextQuery,
   });
 }
@@ -1284,10 +1309,10 @@ async function handleSave(): Promise<void> {
     if (activeWorkspaceTab.value === "contract") {
       if (typeof errors.request_schema === "string") {
         pageError.value = errors.request_schema;
-        setActiveContractSchemaTab("request");
+        await setActiveContractSchemaTab("request");
       } else if (typeof errors.response_schema === "string") {
         pageError.value = errors.response_schema;
-        setActiveContractSchemaTab("response");
+        await setActiveContractSchemaTab("response");
       } else {
         pageError.value = Object.values(errors)[0] ?? "Fix the highlighted route fields before saving.";
       }
@@ -1433,10 +1458,10 @@ async function handleContractSave(): Promise<void> {
     if (typeof errors.request_schema === "string") {
       pageError.value = errors.request_schema;
       activeContractRequestSection.value = resolveContractRequestSectionFromError(errors.request_schema);
-      setActiveContractSchemaTab("request");
+      await setActiveContractSchemaTab("request");
     } else if (typeof errors.response_schema === "string") {
       pageError.value = errors.response_schema;
-      setActiveContractSchemaTab("response");
+      await setActiveContractSchemaTab("response");
     } else {
       pageError.value = Object.values(errors)[0] ?? "Fix the highlighted contract fields before saving.";
     }
@@ -1508,6 +1533,7 @@ function openEndpointFromCatalog(endpointId: number): void {
     return;
   }
 
+  isCatalogCollapsed.value = true;
   void router.push({ name: "endpoints-edit", params: { endpointId } });
 }
 
@@ -1714,7 +1740,14 @@ const activeTitle = computed(() => {
 <template>
   <div class="d-flex flex-column ga-4">
     <v-row class="workspace-grid endpoint-workspace-grid">
-      <v-col class="endpoint-sidebar-col" cols="12" xl="3" lg="4">
+      <v-col
+        v-show="!canCollapseCatalog || !isCatalogCollapsed"
+        class="endpoint-sidebar-col"
+        cols="12"
+        data-testid="endpoint-sidebar-col"
+        lg="4"
+        xl="3"
+      >
         <div class="endpoint-sidebar">
           <EndpointCatalog
             :active-endpoint-id="selectedEndpoint?.id"
@@ -1731,8 +1764,26 @@ const activeTitle = computed(() => {
         </div>
       </v-col>
 
-      <v-col class="endpoint-detail-col" cols="12" xl="9" lg="8">
+      <v-col
+        class="endpoint-detail-col"
+        cols="12"
+        :lg="canCollapseCatalog && isCatalogCollapsed ? 12 : 8"
+        :xl="canCollapseCatalog && isCatalogCollapsed ? 12 : 9"
+      >
         <div class="endpoint-detail-shell">
+          <div v-if="canCollapseCatalog" class="endpoint-workspace-toolbar">
+            <v-btn
+              :aria-expanded="(!isCatalogCollapsed).toString()"
+              :prepend-icon="isCatalogCollapsed ? 'mdi-dock-left' : 'mdi-dock-left'"
+              data-testid="catalog-collapse-toggle"
+              size="small"
+              variant="text"
+              @click="toggleCatalogCollapsed"
+            >
+              {{ isCatalogCollapsed ? "Show routes" : "Hide routes" }}
+            </v-btn>
+          </div>
+
           <v-alert v-if="pageSuccess" border="start" color="success" variant="tonal">
             {{ pageSuccess }}
           </v-alert>
@@ -2817,6 +2868,12 @@ const activeTitle = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.endpoint-workspace-toolbar {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
 }
 
 .endpoint-detail-scroll {

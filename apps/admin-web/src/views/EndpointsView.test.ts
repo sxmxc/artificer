@@ -825,6 +825,56 @@ describe("EndpointsView", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
   });
 
+  it("lets operators collapse the routes rail while editing a selected route", async () => {
+    vi.mocked(listEndpoints).mockResolvedValue([createEndpoint(1, { name: "List users" })]);
+
+    await renderView("/endpoints/1", "edit");
+    await flushPromises();
+
+    const sidebar = screen.getByTestId("endpoint-sidebar-col");
+    const toggle = screen.getByTestId("catalog-collapse-toggle");
+
+    expect(toggle).toHaveTextContent("Hide routes");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(sidebar).toBeVisible();
+
+    await fireEvent.click(toggle);
+    await flushPromises();
+
+    expect(toggle).toHaveTextContent("Show routes");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(sidebar).not.toBeVisible();
+
+    await fireEvent.click(toggle);
+    await flushPromises();
+
+    expect(toggle).toHaveTextContent("Hide routes");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(sidebar).toBeVisible();
+  });
+
+  it("auto-collapses the routes rail when a new route is selected from the catalog", async () => {
+    vi.mocked(listEndpoints).mockResolvedValue([
+      createEndpoint(1, { name: "List users" }),
+      createEndpoint(2, { name: "List invoices" }),
+    ]);
+
+    await renderView("/endpoints/2", "edit");
+    await flushPromises();
+
+    const sidebar = screen.getByTestId("endpoint-sidebar-col");
+
+    expect(sidebar).toBeVisible();
+    expect(screen.getByTestId("catalog-collapse-toggle")).toHaveTextContent("Hide routes");
+
+    await fireEvent.click(screen.getByRole("button", { name: "Select first" }));
+    await flushPromises();
+
+    expect(screen.getByTestId("catalog-collapse-toggle")).toHaveTextContent("Show routes");
+    expect(screen.getByTestId("catalog-collapse-toggle")).toHaveAttribute("aria-expanded", "false");
+    expect(sidebar).not.toBeVisible();
+  });
+
   it("routes overview contract actions to the route Contract tab", async () => {
     vi.mocked(listEndpoints).mockResolvedValue([createEndpoint(1, { name: "List users" })]);
 

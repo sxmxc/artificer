@@ -142,6 +142,10 @@ class RouteExecutionError(Exception):
         return self.error_message
 
 
+class CredentialSecretError(RuntimeError):
+    pass
+
+
 @dataclass(slots=True)
 class CompiledDeployedRoute:
     route_id: int
@@ -734,8 +738,11 @@ def _credential_secret_material(connection: Connection) -> dict[str, Any]:
         return {}
     try:
         decrypted = decrypt_secret_material(encrypted)
-    except ValueError:
-        return {}
+    except ValueError as exc:
+        connection_label = f"{connection.name} ({connection.project}/{connection.environment})"
+        raise CredentialSecretError(
+            f"Credential '{connection_label}' secret material could not be decrypted."
+        ) from exc
     return decrypted if isinstance(decrypted, dict) else {}
 
 
@@ -958,8 +965,6 @@ def _split_postgres_connection_config(
                 secret_material[key] = str(existing[key])
             continue
         if raw_value in {None, ""}:
-            if key not in config and existing.get(key) not in {None, ""}:
-                secret_material[key] = str(existing[key])
             continue
         secret_material[key] = str(raw_value)
 
@@ -1915,7 +1920,13 @@ def execute_live_route(
                     expected_type=ConnectionType.http,
                     node_label="HTTP Request",
                 )
-                connection_config = _connection_runtime_config(connection)
+                try:
+                    connection_config = _connection_runtime_config(connection)
+                except CredentialSecretError as error:
+                    raise RouteExecutionError(
+                        public_message="HTTP Request connection secrets could not be loaded.",
+                        error_message=str(error),
+                    ) from error
                 try:
                     _validate_http_connection_config(connection_config)
                 except ValueError as error:
@@ -2082,7 +2093,13 @@ def execute_live_route(
                     expected_type=ConnectionType.postgres,
                     node_label="Postgres Query",
                 )
-                connection_config = _connection_runtime_config(connection)
+                try:
+                    connection_config = _connection_runtime_config(connection)
+                except CredentialSecretError as error:
+                    raise RouteExecutionError(
+                        public_message="Postgres connection secrets could not be loaded.",
+                        error_message=str(error),
+                    ) from error
                 try:
                     _validate_postgres_connection_config(connection_config)
                 except ValueError as error:

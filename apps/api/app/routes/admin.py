@@ -80,6 +80,7 @@ from app.services.admin_endpoint_policy import (
 )
 from app.services.mock_generation import preview_from_schema
 from app.services.route_runtime import (
+    CredentialSecretError,
     build_execution_telemetry_overview,
     build_credential_read,
     create_credential,
@@ -165,6 +166,10 @@ def _raise_user_input_error(error: ValueError) -> None:
         else status.HTTP_400_BAD_REQUEST
     )
     raise HTTPException(status_code=status_code, detail=detail)
+
+
+def _raise_runtime_configuration_error(error: CredentialSecretError) -> None:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error))
 
 
 def _client_ip_from_request(request: Request) -> str | None:
@@ -986,10 +991,13 @@ def list_runtime_credentials(
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_runtime_read_access),
 ) -> list[CredentialRead]:
-    return [
-        build_credential_read(connection)
-        for connection in list_credentials(session, project=project, environment=environment)
-    ]
+    try:
+        return [
+            build_credential_read(connection)
+            for connection in list_credentials(session, project=project, environment=environment)
+        ]
+    except CredentialSecretError as error:
+        _raise_runtime_configuration_error(error)
 
 
 @router.post("/credentials", response_model=CredentialRead, status_code=status.HTTP_201_CREATED)
@@ -1003,7 +1011,10 @@ def create_runtime_credential(
         connection = create_credential(session, payload)
     except ValueError as error:
         _raise_user_input_error(error)
-    return build_credential_read(connection)
+    try:
+        return build_credential_read(connection)
+    except CredentialSecretError as error:
+        _raise_runtime_configuration_error(error)
 
 
 @router.put("/credentials/{connection_id}", response_model=CredentialRead)
@@ -1021,7 +1032,12 @@ def update_runtime_credential(
         updated_connection = update_credential(session, connection, payload)
     except ValueError as error:
         _raise_user_input_error(error)
-    return build_credential_read(updated_connection)
+    except CredentialSecretError as error:
+        _raise_runtime_configuration_error(error)
+    try:
+        return build_credential_read(updated_connection)
+    except CredentialSecretError as error:
+        _raise_runtime_configuration_error(error)
 
 
 @router.delete("/credentials/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)

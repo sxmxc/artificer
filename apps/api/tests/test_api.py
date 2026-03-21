@@ -1234,12 +1234,14 @@ def test_runtime_connection_updates_preserve_redacted_secret_values(empty_db):
                 "host": "db.internal",
                 "database": "artificer_reporting",
                 "user": "readonly",
+                "password": REDACTED_CONNECTION_SECRET,
             },
             "is_active": True,
         },
         headers=headers,
     )
     assert postgres_update_response.status_code == 200
+    assert postgres_update_response.json()["config"]["password"] == REDACTED_CONNECTION_SECRET
 
     with Session(engine) as session:
         http_connection = session.get(route_runtime_module.Connection, 1)
@@ -1251,8 +1253,124 @@ def test_runtime_connection_updates_preserve_redacted_secret_values(empty_db):
         postgres_connection = session.get(route_runtime_module.Connection, 2)
         assert postgres_connection is not None
         assert postgres_connection.settings["database"] == "artificer_reporting"
+        assert route_runtime_module._connection_runtime_config(postgres_connection)["password"] == "db-secret"
         assert postgres_connection.secret_material_encrypted is not None
         assert "db-secret" not in postgres_connection.secret_material_encrypted
+
+
+def test_runtime_postgres_updates_remove_dsn_when_switching_to_field_config(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/connections",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Switched database",
+            "connector_type": "postgres",
+            "description": None,
+            "config": {
+                "dsn": "postgresql://readonly:old-secret@db.internal:5432/artificer",
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+
+    update_response = client.put(
+        "/api/admin/connections/1",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Switched database",
+            "connector_type": "postgres",
+            "description": "Moved away from DSN mode",
+            "config": {
+                "host": "db.internal",
+                "database": "artificer_reporting",
+                "user": "readonly",
+                "password": "new-secret",
+                "port": 5433,
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    assert "dsn" not in update_response.json()["config"]
+    assert update_response.json()["config"]["password"] == REDACTED_CONNECTION_SECRET
+
+    with Session(engine) as session:
+        postgres_connection = session.get(route_runtime_module.Connection, 1)
+        assert postgres_connection is not None
+        runtime_config = route_runtime_module._connection_runtime_config(postgres_connection)
+        assert "dsn" not in runtime_config
+        assert runtime_config["host"] == "db.internal"
+        assert runtime_config["database"] == "artificer_reporting"
+        assert runtime_config["user"] == "readonly"
+        assert runtime_config["password"] == "new-secret"
+        assert runtime_config["port"] == 5433
+
+
+def test_runtime_connection_update_fails_when_secret_material_cannot_be_decrypted(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/connections",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Broken database secret",
+            "connector_type": "postgres",
+            "description": None,
+            "config": {
+                "host": "db.internal",
+                "database": "artificer",
+                "user": "readonly",
+                "password": "db-secret",
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+
+    with Session(engine) as session:
+        postgres_connection = session.get(route_runtime_module.Connection, 1)
+        assert postgres_connection is not None
+        postgres_connection.secret_material_encrypted = "not-a-valid-token"
+        session.add(postgres_connection)
+        session.commit()
+
+    update_response = client.put(
+        "/api/admin/connections/1",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Broken database secret",
+            "connector_type": "postgres",
+            "description": "Attempted toggle after corruption",
+            "config": {
+                "host": "db.internal",
+                "database": "artificer",
+                "user": "readonly",
+                "password": REDACTED_CONNECTION_SECRET,
+            },
+            "is_active": False,
+        },
+        headers=headers,
+    )
+    assert update_response.status_code == 500
+    assert "could not be decrypted" in update_response.json()["detail"]
+
+    with Session(engine) as session:
+        postgres_connection = session.get(route_runtime_module.Connection, 1)
+        assert postgres_connection is not None
+        assert postgres_connection.secret_material_encrypted == "not-a-valid-token"
+        assert postgres_connection.is_active is True
 
 
 def test_runtime_connections_reject_too_long_scope_name(empty_db):

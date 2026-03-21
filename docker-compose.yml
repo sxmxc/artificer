@@ -58,4 +58,3 @@ volumes:
   admin_web_node_modules:
   pgdata:
     name: ${POSTGRES_VOLUME_NAME:-urban_octo_bassoon_pgdata}
-    external: true

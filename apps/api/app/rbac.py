@@ -14,6 +14,7 @@ class AdminPermission(str, Enum):
     routes_read = "routes.read"
     routes_write = "routes.write"
     routes_preview = "routes.preview"
+    runtime_read = "runtime.read"
     users_manage = "users.manage"
 
 
@@ -34,11 +35,13 @@ ROLE_PERMISSIONS: dict[AdminRole, tuple[AdminPermission, ...]] = {
         AdminPermission.routes_read,
         AdminPermission.routes_write,
         AdminPermission.routes_preview,
+        AdminPermission.runtime_read,
     ),
     AdminRole.superuser: (
         AdminPermission.routes_read,
         AdminPermission.routes_write,
         AdminPermission.routes_preview,
+        AdminPermission.runtime_read,
         AdminPermission.users_manage,
     ),
 }

@@ -12,6 +12,7 @@ The OpenAPI spec must always reflect the active public API contract stored in th
 
 Today:
 - OpenAPI is generated from the shared public-route selector: enabled legacy routes that have not entered the live runtime yet, plus runtime-managed routes with an active deployment.
+- That shared selector currently excludes routes whose `auth_mode` is not `none`, so unsupported inbound-auth modes do not appear in the published public contract until real auth enforcement ships.
 - The live runtime can already dispatch through published `RouteDeployment` records first.
 - `/api/health` is now a system-owned health endpoint rather than a DB-authored mock route, so operational health stays separate from route contracts.
 

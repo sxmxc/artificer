@@ -28,7 +28,7 @@ watch(
 
 const pageTransitionKey = computed(() => getPageTransitionKey(route));
 const canBrowseRoutes = computed(() => auth.canReadRoutes.value && !auth.mustChangePassword.value);
-const canManageConnectors = computed(() => auth.canWriteRoutes.value && !auth.mustChangePassword.value);
+const canManageCredentials = computed(() => auth.canWriteRoutes.value && !auth.mustChangePassword.value);
 const canManageUsers = computed(() => auth.canManageUsers.value && !auth.mustChangePassword.value);
 const routesNavActive = computed(() =>
   route.name === "endpoints-browse" ||
@@ -37,7 +37,7 @@ const routesNavActive = computed(() =>
   route.name === "schema-editor" ||
   route.name === "endpoint-preview",
 );
-const connectorsNavActive = computed(() => route.name === "connectors");
+const credentialsNavActive = computed(() => route.name === "credentials");
 const usersNavActive = computed(() => route.name === "users");
 const accountAvatarSrc = computed(() => auth.user.value?.avatar_url || auth.user.value?.gravatar_url || "");
 const accountDisplayName = computed(() => auth.user.value?.full_name?.trim() || auth.username.value || "Account");
@@ -92,8 +92,8 @@ function goToUsers(): void {
   void router.push({ name: "users" });
 }
 
-function goToConnectors(): void {
-  void router.push({ name: "connectors" });
+function goToCredentials(): void {
+  void router.push({ name: "credentials" });
 }
 
 async function signOut(): Promise<void> {
@@ -119,7 +119,7 @@ async function signOut(): Promise<void> {
 
         <div class="studio-topbar-center">
           <div
-            v-if="auth.isAuthenticated.value && (canBrowseRoutes || canManageConnectors || canManageUsers)"
+            v-if="auth.isAuthenticated.value && (canBrowseRoutes || canManageCredentials || canManageUsers)"
             class="studio-primary-nav"
           >
             <v-btn
@@ -135,16 +135,16 @@ async function signOut(): Promise<void> {
               Routes
             </v-btn>
             <v-btn
-              v-if="canManageConnectors"
-              :aria-current="connectorsNavActive ? 'page' : undefined"
-              :class="{ 'studio-primary-nav__button--active': connectorsNavActive }"
+              v-if="canManageCredentials"
+              :aria-current="credentialsNavActive ? 'page' : undefined"
+              :class="{ 'studio-primary-nav__button--active': credentialsNavActive }"
               class="studio-primary-nav__button"
               prepend-icon="mdi-connection"
               rounded="xl"
               variant="text"
-              @click="goToConnectors"
+              @click="goToCredentials"
             >
-              Connectors
+              Credentials
             </v-btn>
             <v-btn
               v-if="canManageUsers"

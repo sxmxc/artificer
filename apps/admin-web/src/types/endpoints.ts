@@ -44,7 +44,12 @@ export interface RouteFlowDefinition {
 }
 
 export type AdminRole = "viewer" | "editor" | "superuser";
-export type AdminPermission = "routes.read" | "routes.write" | "routes.preview" | "users.manage";
+export type AdminPermission =
+  | "routes.read"
+  | "routes.write"
+  | "routes.preview"
+  | "runtime.read"
+  | "users.manage";
 
 export interface AdminUser {
   id: number;
@@ -283,6 +288,7 @@ export interface Connection extends ConnectionPayload {
   id: number;
   description: string | null;
   is_active: boolean;
+  secret_fields?: string[];
   created_at: string;
   updated_at: string;
 }

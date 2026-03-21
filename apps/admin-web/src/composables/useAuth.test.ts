@@ -34,7 +34,7 @@ const baseUser = {
   gravatar_url: "https://www.gravatar.com/avatar/admin?d=identicon&s=160",
   id: 1,
   is_active: true,
-  permissions: ["routes.read", "routes.write", "routes.preview", "users.manage"] as const,
+  permissions: ["routes.read", "routes.write", "routes.preview", "runtime.read", "users.manage"] as const,
   role: "superuser" as const,
   is_superuser: true,
   last_login_at: null,
@@ -123,6 +123,7 @@ describe("useAuth", () => {
     expect(auth.role.value).toBe("viewer");
     expect(auth.canReadRoutes.value).toBe(true);
     expect(auth.canPreviewRoutes.value).toBe(true);
+    expect(auth.canReadRuntime.value).toBe(false);
     expect(auth.canWriteRoutes.value).toBe(false);
     expect(auth.canManageUsers.value).toBe(false);
   });

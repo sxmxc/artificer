@@ -78,10 +78,10 @@ describe("ConnectionManagerCard", () => {
       },
     });
 
-    await fireEvent.click(screen.getByRole("button", { name: "New connection" }));
-    await fireEvent.update(screen.getByLabelText("Connection name"), "Duplicate name");
+    await fireEvent.click(screen.getByRole("button", { name: "New credential" }));
+    await fireEvent.update(screen.getByLabelText("Credential name"), "Duplicate name");
     await fireEvent.update(screen.getByLabelText("Base URL"), "https://api.example.com");
-    await fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
 
     await view.rerender({
       canWrite: true,
@@ -105,7 +105,7 @@ describe("ConnectionManagerCard", () => {
     expect(
       within(dialog).getByText("Connection 'Duplicate name' is already in use for scope 'project-alpha/production'."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save connection" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save credential" })).toBeInTheDocument();
   }, 10_000);
 
   it("emits delete when the operator confirms connection deletion", async () => {
@@ -131,10 +131,55 @@ describe("ConnectionManagerCard", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete connection "Delete candidate" from scope project-alpha/production? This cannot be undone.',
+      'Delete credential "Delete candidate" from scope project-alpha/production? This cannot be undone.',
     );
     expect(view.emitted("delete")).toEqual([[12]]);
 
     confirmSpy.mockRestore();
+  });
+
+  it("preserves redacted HTTP header secrets when editing an existing connection", async () => {
+    const connection = buildConnection({
+      config: {
+        base_url: "https://alpha.example.com",
+        headers: {
+          "x-api-key": "__ARTIFICER_REDACTED_SECRET__",
+        },
+      },
+      secret_fields: ["config.headers"],
+    });
+
+    const view = render(ConnectionManagerCard, {
+      props: {
+        canWrite: true,
+        connections: [connection],
+        preferredProject: "project-alpha",
+        preferredEnvironment: "production",
+      },
+      global: {
+        plugins: [vuetify],
+      },
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByText(/Stored secret values are redacted after save/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Shared headers JSON")).toHaveValue('{\n  "x-api-key": "<stored secret>"\n}');
+
+    await fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
+
+    expect(view.emitted("update")).toEqual([
+      [
+        1,
+        expect.objectContaining({
+          config: {
+            base_url: "https://alpha.example.com",
+            headers: {
+              "x-api-key": "__ARTIFICER_REDACTED_SECRET__",
+            },
+          },
+        }),
+      ],
+    ]);
   });
 });

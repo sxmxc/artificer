@@ -29,6 +29,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-artificer-local-runtime-key}
     ports:
       - "${API_PUBLISHED_PORT:-8000}:${API_PORT:-8000}"
     depends_on:

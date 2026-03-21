@@ -11,8 +11,8 @@ The admin UI is a Vue + Vite + Vuetify application that lets users manage routes
 - **Users**: Separate superuser-only user-management page that treats the directory as the primary surface, adds summary cards plus search/filter controls, opens account creation in a dedicated dialog, and supports creating, editing, disabling, and deleting admin accounts with optional profile-image URLs plus activity metadata such as last sign-in and account creation time.
 - **Route form**: Route tags are authored through a chip-style tag box with removable pills instead of a plain comma-separated text field, and the form no longer exposes the internal `slug` field.
 - **Contract authoring**: The route `Contract` tab now embeds the request/response builder, with a compact add-tools rail, separate field/value palettes, a connected pill-tree canvas with dedicated drag handles, collapsible object/array branches, inline row anchors plus end-of-branch add targets, plus-button insert menus as a click alternative to drag/drop, adjacent below-canvas field settings and preview-input panels, import/copy actions, response-side route-value pills derived from saved path and query definitions, response-string template controls plus helper chips in the inspector, and a request-side split between `JSON body`, `Path params`, and `Query params` authoring. Row icons now carry the field data type without a second adjacent type badge. The current tree surface is still considered transitional as the roadmap pivots toward a `Vue Flow`-backed canvas architecture.
-- **Flow**: The `Flow` tab now uses a Vue Flow canvas for `flow_definition`, with an API-only trigger entry, fixed-size nodes, visible `True` / `False` / `Case` / `Default` ports, drag-to-canvas palette actions, explicit `Error Response` terminals, a separate selected-node inspector, compact route-scoped connector context (counts/scope/refresh) plus a direct link to the dedicated `Connectors` page, and a canvas-native full-editor mode that keeps the graph primary by default through compact floating add/info/node launchers, a top-center control bar, a MiniMap, and node-local quick actions while preserving the same backend data model.
-- **Connectors**: Dedicated top-level page for shared HTTP/Postgres connector credentials and metadata, including create/edit, retire/reactivate, and delete (with in-use protection errors when referenced by saved flow implementations).
+- **Flow**: The `Flow` tab now uses a Vue Flow canvas for `flow_definition`, with an API-only trigger entry, fixed-size nodes, visible `True` / `False` / `Case` / `Default` ports, drag-to-canvas palette actions, explicit `Error Response` terminals, a separate selected-node inspector, compact route-scoped connector context (counts/scope/refresh) plus a direct link to the dedicated `Credentials` page, and a canvas-native full-editor mode that keeps the graph primary by default through compact floating add/info/node launchers, a top-center control bar, a MiniMap, and node-local quick actions while preserving the same backend data model.
+- **Credentials**: Dedicated top-level page for shared HTTP/Postgres runtime credentials and metadata, including create/edit, retire/reactivate, and delete (with in-use protection errors when referenced by saved flow implementations). Stored secrets render only as write-only placeholders after save.
 - **Test**: Route testing is now split between schema-driven preview tools and execution-history visibility for published live routes.
 - **Deploy**: The `Deploy` tab publishes the current implementation into the runtime registry and shows deployment history.
 
@@ -40,6 +40,10 @@ The frontend communicates with the backend via the admin API under `/api/admin`.
 - `PUT /api/admin/endpoints/{id}/implementation/current`
 - `GET /api/admin/endpoints/{id}/deployments`
 - `POST /api/admin/endpoints/{id}/deployments/publish`
+- `GET /api/admin/credentials`
+- `POST /api/admin/credentials`
+- `PUT /api/admin/credentials/{id}`
+- `DELETE /api/admin/credentials/{id}`
 - `GET /api/admin/connections`
 - `POST /api/admin/connections`
 - `PUT /api/admin/connections/{id}`

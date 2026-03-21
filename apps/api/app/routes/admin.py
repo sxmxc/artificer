@@ -15,7 +15,7 @@ from app.crud import (
     update_endpoint,
 )
 from app.db import get_session
-from app.models import Connection, EndpointDefinition
+from app.models import Credential, EndpointDefinition
 from app.schemas import (
     AdminAccountUpdate,
     AdminLoginRequest,
@@ -25,9 +25,9 @@ from app.schemas import (
     AdminUserRead,
     AdminUserUpdate,
     ChangePasswordRequest,
-    ConnectionCreate,
-    ConnectionRead,
-    ConnectionUpdate,
+    CredentialCreate,
+    CredentialRead,
+    CredentialUpdate,
     EndpointCreate,
     EndpointBundle,
     EndpointImportMode,
@@ -63,6 +63,7 @@ from app.services.admin_auth import (
     require_route_preview_access,
     require_route_read_access,
     require_route_write_access,
+    require_runtime_read_access,
     require_user_management_access,
     resolve_admin_role,
     revoke_admin_session,
@@ -80,17 +81,18 @@ from app.services.admin_endpoint_policy import (
 from app.services.mock_generation import preview_from_schema
 from app.services.route_runtime import (
     build_execution_telemetry_overview,
-    create_connection,
+    build_credential_read,
+    create_credential,
     delete_connection,
     get_execution_run_detail,
     get_route_implementation_read,
     invalidate_deployment_registry,
-    list_connections,
+    list_credentials,
     list_execution_run_reads,
     list_route_deployments,
     publish_route_implementation,
     unpublish_route_implementation,
-    update_connection,
+    update_credential,
     upsert_route_implementation,
 )
 from app.services.route_status import (
@@ -166,12 +168,6 @@ def _raise_user_input_error(error: ValueError) -> None:
 
 
 def _client_ip_from_request(request: Request) -> str | None:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        first_hop = forwarded_for.split(",")[0].strip()
-        if first_hop:
-            return first_hop
-
     return request.client.host if request.client else None
 
 
@@ -982,58 +978,62 @@ def unpublish_current_route_implementation(
     return RouteDeploymentRead.model_validate(deployment)
 
 
-@router.get("/connections", response_model=list[ConnectionRead])
-def list_runtime_connections(
+@router.get("/credentials", response_model=list[CredentialRead])
+@router.get("/connections", response_model=list[CredentialRead])
+def list_runtime_credentials(
     project: str | None = None,
     environment: str | None = None,
     session: Session = Depends(get_session),
-    _: AdminContext = Depends(require_route_read_access),
-) -> list[ConnectionRead]:
+    _: AdminContext = Depends(require_runtime_read_access),
+) -> list[CredentialRead]:
     return [
-        ConnectionRead.model_validate(connection)
-        for connection in list_connections(session, project=project, environment=environment)
+        build_credential_read(connection)
+        for connection in list_credentials(session, project=project, environment=environment)
     ]
 
 
-@router.post("/connections", response_model=ConnectionRead, status_code=status.HTTP_201_CREATED)
-def create_runtime_connection(
-    payload: ConnectionCreate,
+@router.post("/credentials", response_model=CredentialRead, status_code=status.HTTP_201_CREATED)
+@router.post("/connections", response_model=CredentialRead, status_code=status.HTTP_201_CREATED)
+def create_runtime_credential(
+    payload: CredentialCreate,
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_route_write_access),
-) -> ConnectionRead:
+) -> CredentialRead:
     try:
-        connection = create_connection(session, payload)
+        connection = create_credential(session, payload)
     except ValueError as error:
         _raise_user_input_error(error)
-    return ConnectionRead.model_validate(connection)
+    return build_credential_read(connection)
 
 
-@router.put("/connections/{connection_id}", response_model=ConnectionRead)
-def update_runtime_connection(
+@router.put("/credentials/{connection_id}", response_model=CredentialRead)
+@router.put("/connections/{connection_id}", response_model=CredentialRead)
+def update_runtime_credential(
     connection_id: int,
-    payload: ConnectionUpdate,
+    payload: CredentialUpdate,
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_route_write_access),
-) -> ConnectionRead:
-    connection = session.get(Connection, connection_id)
+) -> CredentialRead:
+    connection = session.get(Credential, connection_id)
     if connection is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
     try:
-        updated_connection = update_connection(session, connection, payload)
+        updated_connection = update_credential(session, connection, payload)
     except ValueError as error:
         _raise_user_input_error(error)
-    return ConnectionRead.model_validate(updated_connection)
+    return build_credential_read(updated_connection)
 
 
+@router.delete("/credentials/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
 @router.delete("/connections/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_runtime_connection(
+def delete_runtime_credential(
     connection_id: int,
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_route_write_access),
 ) -> Response:
-    connection = session.get(Connection, connection_id)
+    connection = session.get(Credential, connection_id)
     if connection is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
     try:
         delete_connection(session, connection)
     except ValueError as error:
@@ -1046,7 +1046,7 @@ def list_route_executions(
     endpoint_id: int | None = None,
     limit: int = 50,
     session: Session = Depends(get_session),
-    _: AdminContext = Depends(require_route_read_access),
+    _: AdminContext = Depends(require_runtime_read_access),
 ) -> list[ExecutionRunRead]:
     return list_execution_run_reads(session, route_id=endpoint_id, limit=max(1, min(limit, 200)))
 
@@ -1056,7 +1056,7 @@ def read_execution_telemetry_overview(
     limit: int = 200,
     top: int = 5,
     session: Session = Depends(get_session),
-    _: AdminContext = Depends(require_route_read_access),
+    _: AdminContext = Depends(require_runtime_read_access),
 ) -> ExecutionTelemetryOverview:
     return build_execution_telemetry_overview(session, limit=limit, top=top)
 
@@ -1065,7 +1065,7 @@ def read_execution_telemetry_overview(
 def read_route_execution(
     run_id: int,
     session: Session = Depends(get_session),
-    _: AdminContext = Depends(require_route_read_access),
+    _: AdminContext = Depends(require_runtime_read_access),
 ) -> ExecutionRunDetail:
     run = get_execution_run_detail(session, run_id)
     if run is None:

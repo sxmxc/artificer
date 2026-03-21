@@ -67,13 +67,19 @@ export const router = createRouter({
       },
     },
     {
-      path: "/connectors",
-      name: "connectors",
+      path: "/credentials",
+      name: "credentials",
       component: ConnectionsView,
       meta: {
         requiresAuth: true,
         permission: "routes.write",
-        title: "Connectors",
+        title: "Credentials",
+      },
+    },
+    {
+      path: "/connectors",
+      redirect: {
+        name: "credentials",
       },
     },
     {

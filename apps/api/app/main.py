@@ -6,8 +6,10 @@ from fastapi.staticfiles import StaticFiles
 from app.api import admin_router, public_router, site_router
 from app.config import Settings
 from app.openapi import get_openapi
+from app.services.credential_crypto import validate_credential_crypto_settings
 
 settings = Settings()
+validate_credential_crypto_settings()
 
 app = FastAPI(title="Artificer API", version=settings.app_version)
 PUBLIC_CSP = (

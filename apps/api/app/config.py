@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     admin_login_lockout_seconds: int = Field(default=900, validation_alias="ADMIN_LOGIN_LOCKOUT_SECONDS")
     admin_session_ttl_hours: int = Field(default=12, validation_alias="ADMIN_SESSION_TTL_HOURS")
     admin_remember_me_ttl_days: int = Field(default=30, validation_alias="ADMIN_REMEMBER_ME_TTL_DAYS")
+    credential_encryption_key: str | None = Field(default=None, validation_alias="CREDENTIAL_ENCRYPTION_KEY")
 
     enable_openapi: bool = Field(default=True, validation_alias="ENABLE_OPENAPI")
 

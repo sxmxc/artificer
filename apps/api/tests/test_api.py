@@ -19,6 +19,8 @@ if TEST_DB_PATH.exists():
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{TEST_DB_PATH}")
 INITIAL_ADMIN_PASSWORD = "admin123456789"
 ACTIVE_ADMIN_PASSWORD = "admin123456789-rotated"
+REDACTED_CONNECTION_SECRET = "__ARTIFICER_REDACTED_SECRET__"
+os.environ.setdefault("CREDENTIAL_ENCRYPTION_KEY", "artificer-test-credential-key")
 os.environ.setdefault("ADMIN_BOOTSTRAP_USERNAME", "admin")
 os.environ.setdefault("ADMIN_BOOTSTRAP_PASSWORD", INITIAL_ADMIN_PASSWORD)
 
@@ -218,6 +220,9 @@ def test_create_db_and_tables_uses_alembic_schema():
     connection_columns = {column["name"] for column in inspector.get_columns("connection")}
     assert "project" in connection_columns
     assert "environment" in connection_columns
+    assert "settings" in connection_columns
+    assert "secret_material_encrypted" in connection_columns
+    assert "config" not in connection_columns
 
 
 def test_route_runtime_scaffolding_endpoints_publish_and_record_executions(empty_db):
@@ -859,10 +864,102 @@ def test_runtime_connections_can_be_created_and_listed(empty_db):
             "description": "Primary live API target",
             "config": {"base_url": "https://api.example.com"},
             "is_active": True,
+            "secret_fields": [],
             "created_at": list_response.json()[0]["created_at"],
             "updated_at": list_response.json()[0]["updated_at"],
         }
     ]
+
+
+def test_runtime_credentials_primary_endpoints_alias_connection_routes(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/credentials",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Primary credential",
+            "connector_type": "http",
+            "description": "Primary target",
+            "config": {
+                "base_url": "https://api.example.com",
+                "headers": {"x-api-key": "secret-token"},
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["config"]["headers"]["x-api-key"] == REDACTED_CONNECTION_SECRET
+    assert created["secret_fields"] == ["config.headers"]
+
+    list_response = client.get("/api/admin/credentials", headers=headers)
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 1
+    assert list_response.json()[0]["id"] == created["id"]
+
+    compatibility_list_response = client.get("/api/admin/connections", headers=headers)
+    assert compatibility_list_response.status_code == 200
+    assert compatibility_list_response.json()[0]["id"] == created["id"]
+
+    update_response = client.put(
+        f"/api/admin/credentials/{created['id']}",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Primary credential",
+            "connector_type": "http",
+            "description": "Rotated target",
+            "config": {
+                "base_url": "https://api-v2.example.com",
+                "headers": {"x-api-key": REDACTED_CONNECTION_SECRET},
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["description"] == "Rotated target"
+
+    delete_response = client.delete(f"/api/admin/credentials/{created['id']}", headers=headers)
+    assert delete_response.status_code == 204
+
+
+def test_runtime_connection_secrets_are_encrypted_at_rest(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    response = client.post(
+        "/api/admin/credentials",
+        json={
+            "name": "Encrypted secrets",
+            "connector_type": "postgres",
+            "description": None,
+            "config": {
+                "host": "db.internal",
+                "database": "artificer",
+                "user": "readonly",
+                "password": "super-secret",
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201
+
+    with Session(engine) as session:
+        credential = session.get(route_runtime_module.Connection, 1)
+        assert credential is not None
+        assert credential.settings == {
+            "host": "db.internal",
+            "database": "artificer",
+            "user": "readonly",
+        }
+        assert credential.secret_material_encrypted is not None
+        assert "super-secret" not in credential.secret_material_encrypted
 
 
 def test_runtime_connections_are_scoped_and_can_be_updated(empty_db):
@@ -952,6 +1049,7 @@ def test_runtime_connections_are_scoped_and_can_be_updated(empty_db):
             "description": "Rotated staging target",
             "config": {"base_url": "https://alpha-staging.example.com", "timeout_ms": 2500},
             "is_active": False,
+            "secret_fields": [],
             "created_at": filtered_response.json()[0]["created_at"],
             "updated_at": filtered_response.json()[0]["updated_at"],
         }
@@ -1004,6 +1102,157 @@ def test_runtime_connections_default_and_trim_scope_values(empty_db):
     assert filtered_response.status_code == 200
     assert len(filtered_response.json()) == 1
     assert filtered_response.json()[0]["id"] == created_connection["id"]
+
+
+def test_runtime_connection_reads_redact_secret_config_fields(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    http_response = client.post(
+        "/api/admin/connections",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Secret upstream",
+            "connector_type": "http",
+            "description": None,
+            "config": {
+                "base_url": "https://api.example.com",
+                "headers": {"x-api-key": "shared-secret"},
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert http_response.status_code == 201
+    assert http_response.json()["config"] == {
+        "base_url": "https://api.example.com",
+        "headers": {"x-api-key": REDACTED_CONNECTION_SECRET},
+    }
+    assert http_response.json()["secret_fields"] == ["config.headers"]
+
+    postgres_response = client.post(
+        "/api/admin/connections",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Secret database",
+            "connector_type": "postgres",
+            "description": None,
+            "config": {
+                "host": "db.internal",
+                "database": "artificer",
+                "user": "readonly",
+                "password": "db-secret",
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert postgres_response.status_code == 201
+    assert postgres_response.json()["config"]["password"] == REDACTED_CONNECTION_SECRET
+    assert postgres_response.json()["secret_fields"] == ["config.password"]
+
+    list_response = client.get("/api/admin/connections", headers=headers)
+    assert list_response.status_code == 200
+    by_name = {item["name"]: item for item in list_response.json()}
+    assert by_name["Secret upstream"]["config"]["headers"] == {"x-api-key": REDACTED_CONNECTION_SECRET}
+    assert by_name["Secret upstream"]["secret_fields"] == ["config.headers"]
+    assert by_name["Secret database"]["config"]["password"] == REDACTED_CONNECTION_SECRET
+    assert by_name["Secret database"]["secret_fields"] == ["config.password"]
+
+
+def test_runtime_connection_updates_preserve_redacted_secret_values(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    http_response = client.post(
+        "/api/admin/connections",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Preserved upstream",
+            "connector_type": "http",
+            "description": None,
+            "config": {
+                "base_url": "https://api.example.com",
+                "headers": {"x-api-key": "shared-secret"},
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert http_response.status_code == 201
+
+    http_update_response = client.put(
+        "/api/admin/connections/1",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Preserved upstream",
+            "connector_type": "http",
+            "description": "Updated without rotating header",
+            "config": {
+                "base_url": "https://api-v2.example.com",
+                "headers": {"x-api-key": REDACTED_CONNECTION_SECRET},
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert http_update_response.status_code == 200
+
+    postgres_response = client.post(
+        "/api/admin/connections",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Preserved database",
+            "connector_type": "postgres",
+            "description": None,
+            "config": {
+                "host": "db.internal",
+                "database": "artificer",
+                "user": "readonly",
+                "password": "db-secret",
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert postgres_response.status_code == 201
+
+    postgres_update_response = client.put(
+        "/api/admin/connections/2",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Preserved database",
+            "connector_type": "postgres",
+            "description": "Updated without rotating password",
+            "config": {
+                "host": "db.internal",
+                "database": "artificer_reporting",
+                "user": "readonly",
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert postgres_update_response.status_code == 200
+
+    with Session(engine) as session:
+        http_connection = session.get(route_runtime_module.Connection, 1)
+        assert http_connection is not None
+        assert http_connection.settings["base_url"] == "https://api-v2.example.com"
+        assert http_connection.secret_material_encrypted is not None
+        assert "shared-secret" not in http_connection.secret_material_encrypted
+
+        postgres_connection = session.get(route_runtime_module.Connection, 2)
+        assert postgres_connection is not None
+        assert postgres_connection.settings["database"] == "artificer_reporting"
+        assert postgres_connection.secret_material_encrypted is not None
+        assert "db-secret" not in postgres_connection.secret_material_encrypted
 
 
 def test_runtime_connections_reject_too_long_scope_name(empty_db):
@@ -1771,6 +2020,7 @@ def test_runtime_http_request_connector_executes_and_records_steps(empty_db, mon
         "device_id": "device-1",
         "include": "specs",
     }
+    assert "shared-secret" not in json.dumps(execution_detail)
 
 
 def test_runtime_postgres_query_connector_executes_and_records_steps(empty_db, monkeypatch):
@@ -1917,6 +2167,7 @@ def test_runtime_postgres_query_connector_executes_and_records_steps(empty_db, m
     ]
     response_step = execution_detail["steps"][2]
     assert response_step["output_data"]["body"]["rows"][0]["shipped_at"] == shipped_at.isoformat()
+    assert "postgresql://readonly:secret@db.internal:5432/artificer" not in json.dumps(execution_detail)
 
 
 def test_runtime_http_request_connector_failures_return_error_runs(empty_db, monkeypatch):
@@ -1996,7 +2247,6 @@ def test_runtime_http_request_connector_failures_return_error_runs(empty_db, mon
     assert live_response.status_code == 502
     assert live_response.json() == {
         "error": "HTTP Request step failed to reach the upstream service.",
-        "details": "upstream timed out",
     }
 
     executions_response = client.get(
@@ -2017,6 +2267,478 @@ def test_runtime_http_request_connector_failures_return_error_runs(empty_db, mon
     assert error_step["node_type"] == "http_request"
     assert error_step["status"] == "error"
     assert error_step["error_message"] == "upstream timed out"
+
+
+@pytest.mark.parametrize("invalid_path", ["https://evil.example.com/pwn", "//evil.example.com/pwn"])
+def test_runtime_http_request_connector_rejects_absolute_or_scheme_relative_paths(empty_db, monkeypatch, invalid_path):
+    client = TestClient(app)
+    headers = _login_headers(client)
+    called = {"invoked": False}
+
+    def fake_http_request(*, method, url, headers, query, body, timeout_ms):
+        called["invoked"] = True
+        return {
+            "status_code": 200,
+            "headers": {"content-type": "application/json"},
+            "content_type": "application/json",
+            "body": {"ok": True},
+        }
+
+    monkeypatch.setattr(route_runtime_module, "_perform_http_request", fake_http_request)
+
+    create_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="HTTP URL guard route", path="/api/http-url-guard"),
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    endpoint = create_response.json()
+
+    connection_response = client.post(
+        "/api/admin/connections",
+        json={
+            "name": "URL guard upstream",
+            "connector_type": "http",
+            "description": None,
+            "config": {"base_url": "https://api.example.com"},
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert connection_response.status_code == 201
+    connection = connection_response.json()
+
+    update_implementation_response = client.put(
+        f"/api/admin/endpoints/{endpoint['id']}/implementation/current",
+        json={
+            "flow_definition": {
+                "schema_version": 1,
+                "nodes": [
+                    {"id": "trigger", "type": "api_trigger", "config": {}},
+                    {
+                        "id": "http",
+                        "type": "http_request",
+                        "config": {
+                            "connection_id": connection["id"],
+                            "method": "GET",
+                            "path": invalid_path,
+                        },
+                    },
+                    {"id": "response", "type": "set_response", "config": {"status_code": 200, "body": {"ok": True}}},
+                ],
+                "edges": [
+                    {"source": "trigger", "target": "http"},
+                    {"source": "http", "target": "response"},
+                ],
+            }
+        },
+        headers=headers,
+    )
+    assert update_implementation_response.status_code == 200
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_response.status_code == 201
+
+    live_response = client.get("/api/http-url-guard")
+    assert live_response.status_code == 500
+    assert live_response.json() == {"error": "HTTP Request step requires a relative path."}
+    assert called["invoked"] is False
+
+    executions_response = client.get(
+        f"/api/admin/executions?endpoint_id={endpoint['id']}&limit=5",
+        headers=headers,
+    )
+    assert executions_response.status_code == 200
+    execution = executions_response.json()[0]
+    assert execution["status"] == "error"
+    assert "must be relative" in (execution["error_message"] or "")
+
+
+def test_runtime_http_request_connector_allows_normal_relative_paths(empty_db, monkeypatch):
+    client = TestClient(app)
+    headers = _login_headers(client)
+    called: dict[str, object] = {}
+
+    def fake_http_request(*, method, url, headers, query, body, timeout_ms):
+        called["url"] = url
+        return {
+            "status_code": 200,
+            "headers": {"content-type": "application/json"},
+            "content_type": "application/json",
+            "body": {"ok": True},
+        }
+
+    monkeypatch.setattr(route_runtime_module, "_perform_http_request", fake_http_request)
+
+    create_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="HTTP relative path route", path="/api/http-relative/{deviceId}"),
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    endpoint = create_response.json()
+
+    connection_response = client.post(
+        "/api/admin/connections",
+        json={
+            "name": "Relative path upstream",
+            "connector_type": "http",
+            "description": None,
+            "config": {"base_url": "https://api.example.com"},
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert connection_response.status_code == 201
+    connection = connection_response.json()
+
+    update_implementation_response = client.put(
+        f"/api/admin/endpoints/{endpoint['id']}/implementation/current",
+        json={
+            "flow_definition": {
+                "schema_version": 1,
+                "nodes": [
+                    {"id": "trigger", "type": "api_trigger", "config": {}},
+                    {
+                        "id": "http",
+                        "type": "http_request",
+                        "config": {
+                            "connection_id": connection["id"],
+                            "method": "GET",
+                            "path": "devices/{{request.path.deviceId}}",
+                        },
+                    },
+                    {
+                        "id": "response",
+                        "type": "set_response",
+                        "config": {
+                            "status_code": 200,
+                            "body": {"ok": {"$ref": "state.http.response.body.ok"}},
+                        },
+                    },
+                ],
+                "edges": [
+                    {"source": "trigger", "target": "http"},
+                    {"source": "http", "target": "response"},
+                ],
+            }
+        },
+        headers=headers,
+    )
+    assert update_implementation_response.status_code == 200
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_response.status_code == 201
+
+    live_response = client.get("/api/http-relative/device-1")
+    assert live_response.status_code == 200
+    assert live_response.json() == {"ok": True}
+    assert called["url"] == "https://api.example.com/devices/device-1"
+
+
+def test_runtime_http_request_connector_rejects_secret_header_collisions(empty_db, monkeypatch):
+    client = TestClient(app)
+    headers = _login_headers(client)
+    called = {"invoked": False}
+
+    def fake_http_request(*, method, url, headers, query, body, timeout_ms):
+        called["invoked"] = True
+        return {
+            "status_code": 200,
+            "headers": {"content-type": "application/json"},
+            "content_type": "application/json",
+            "body": {"ok": True},
+        }
+
+    monkeypatch.setattr(route_runtime_module, "_perform_http_request", fake_http_request)
+
+    create_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="HTTP header collision route", path="/api/http-header-collision"),
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    endpoint = create_response.json()
+
+    connection_response = client.post(
+        "/api/admin/connections",
+        json={
+            "name": "Header collision upstream",
+            "connector_type": "http",
+            "description": None,
+            "config": {
+                "base_url": "https://api.example.com",
+                "headers": {"x-api-key": "shared-secret"},
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert connection_response.status_code == 201
+    connection = connection_response.json()
+
+    update_implementation_response = client.put(
+        f"/api/admin/endpoints/{endpoint['id']}/implementation/current",
+        json={
+            "flow_definition": {
+                "schema_version": 1,
+                "nodes": [
+                    {"id": "trigger", "type": "api_trigger", "config": {}},
+                    {
+                        "id": "http",
+                        "type": "http_request",
+                        "config": {
+                            "connection_id": connection["id"],
+                            "method": "GET",
+                            "path": "/status",
+                            "headers": {"x-api-key": "override-secret"},
+                        },
+                    },
+                    {"id": "response", "type": "set_response", "config": {"status_code": 200, "body": {"ok": True}}},
+                ],
+                "edges": [
+                    {"source": "trigger", "target": "http"},
+                    {"source": "http", "target": "response"},
+                ],
+            }
+        },
+        headers=headers,
+    )
+    assert update_implementation_response.status_code == 200
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_response.status_code == 201
+
+    live_response = client.get("/api/http-header-collision")
+    assert live_response.status_code == 500
+    assert live_response.json() == {"error": "HTTP Request step attempted to override protected headers."}
+    assert called["invoked"] is False
+
+    executions_response = client.get(
+        f"/api/admin/executions?endpoint_id={endpoint['id']}&limit=5",
+        headers=headers,
+    )
+    assert executions_response.status_code == 200
+    execution = executions_response.json()[0]
+    assert execution["status"] == "error"
+    assert "x-api-key" in (execution["error_message"] or "").lower()
+    assert "shared-secret" not in (execution["error_message"] or "")
+
+
+def test_runtime_postgres_connector_errors_redact_secret_material(empty_db, monkeypatch):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    def fake_postgres_query(*, connection_config, sql, parameters):
+        raise ValueError(
+            "connection failed for dsn=postgresql://readonly:super-secret@db.internal:5432/artificer password=super-secret"
+        )
+
+    monkeypatch.setattr(route_runtime_module, "_perform_postgres_query", fake_postgres_query)
+
+    create_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Postgres secret error route", path="/api/postgres-secret-error/{orderId}"),
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    endpoint = create_response.json()
+
+    connection_response = client.post(
+        "/api/admin/connections",
+        json={
+            "name": "Secret error database",
+            "connector_type": "postgres",
+            "description": None,
+            "config": {"dsn": "postgresql://readonly:super-secret@db.internal:5432/artificer"},
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert connection_response.status_code == 201
+    connection = connection_response.json()
+
+    update_implementation_response = client.put(
+        f"/api/admin/endpoints/{endpoint['id']}/implementation/current",
+        json={
+            "flow_definition": {
+                "schema_version": 1,
+                "nodes": [
+                    {"id": "trigger", "type": "api_trigger", "config": {}},
+                    {
+                        "id": "query",
+                        "type": "postgres_query",
+                        "config": {
+                            "connection_id": connection["id"],
+                            "sql": "select order_id from orders where order_id = %(order_id)s",
+                            "parameters": {"order_id": {"$ref": "request.path.orderId"}},
+                        },
+                    },
+                    {"id": "response", "type": "set_response", "config": {"status_code": 200, "body": {"ok": True}}},
+                ],
+                "edges": [
+                    {"source": "trigger", "target": "query"},
+                    {"source": "query", "target": "response"},
+                ],
+            }
+        },
+        headers=headers,
+    )
+    assert update_implementation_response.status_code == 200
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_response.status_code == 201
+
+    live_response = client.get("/api/postgres-secret-error/ord_123")
+    assert live_response.status_code == 502
+    assert live_response.json() == {"error": "Postgres Query step failed against the configured database."}
+
+    executions_response = client.get(
+        f"/api/admin/executions?endpoint_id={endpoint['id']}&limit=5",
+        headers=headers,
+    )
+    assert executions_response.status_code == 200
+    execution = executions_response.json()[0]
+    error_message = execution["error_message"] or ""
+    assert "<redacted>" in error_message
+    assert "super-secret" not in error_message
+    assert "postgresql://readonly:super-secret@" not in error_message
+
+    execution_detail_response = client.get(
+        f"/api/admin/executions/{execution['id']}",
+        headers=headers,
+    )
+    assert execution_detail_response.status_code == 200
+    error_step = execution_detail_response.json()["steps"][1]
+    assert "<redacted>" in (error_step["error_message"] or "")
+    assert "super-secret" not in (error_step["error_message"] or "")
+
+
+def test_public_unsupported_auth_mode_route_is_hidden_and_blocked(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/endpoints",
+        json={
+            **_endpoint_payload(name="Basic auth route", path="/api/basic-auth-route"),
+            "auth_mode": "basic",
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+
+    reference_paths = {item["path"] for item in client.get("/api/reference.json").json()["endpoints"]}
+    assert "/api/basic-auth-route" not in reference_paths
+    assert "/api/basic-auth-route" not in client.get("/openapi.json").json()["paths"]
+
+    live_response = client.get("/api/basic-auth-route")
+    assert live_response.status_code == 501
+    assert live_response.json() == {
+        "error": (
+            "This route's auth mode is not supported by the public runtime yet. "
+            "Only auth_mode 'none' is currently supported."
+        ),
+        "auth_mode": "basic",
+    }
+
+
+def test_published_route_with_unsupported_auth_mode_is_blocked_before_runtime_execution(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/endpoints",
+        json={
+            **_endpoint_payload(name="Bearer auth route", path="/api/bearer-auth-route"),
+            "auth_mode": "bearer",
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    endpoint = create_response.json()
+
+    update_response = client.put(
+        f"/api/admin/endpoints/{endpoint['id']}/implementation/current",
+        json={"flow_definition": _live_route_flow_definition(body={"status": "should-not-run"})},
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{endpoint['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=headers,
+    )
+    assert publish_response.status_code == 201
+
+    live_response = client.get("/api/bearer-auth-route")
+    assert live_response.status_code == 501
+    assert live_response.json()["auth_mode"] == "bearer"
+
+    health_response = client.get("/api/health")
+    assert health_response.status_code == 200
+    health_payload = health_response.json()
+    assert health_payload["summary"] == {
+        "public_route_count": 0,
+        "published_live_routes": 0,
+        "legacy_mock_routes": 0,
+    }
+    dependencies_by_name = {dependency["name"]: dependency for dependency in health_payload["dependencies"]}
+    assert dependencies_by_name["deployment_registry"]["meta"] == {
+        "compiled_route_count": 0,
+        "live_route_count": 0,
+    }
+
+    executions_response = client.get(
+        f"/api/admin/executions?endpoint_id={endpoint['id']}&limit=5",
+        headers=headers,
+    )
+    assert executions_response.status_code == 200
+    assert executions_response.json() == []
+
+
+def test_admin_login_throttle_ignores_x_forwarded_for_header(empty_db):
+    client = TestClient(app)
+
+    for attempt in range(admin_auth_module.settings.admin_login_ip_max_attempts):
+        response = client.post(
+            "/api/admin/auth/login",
+            json={
+                "username": "missing-user",
+                "password": "definitely-wrong",
+                "remember_me": False,
+            },
+            headers={"X-Forwarded-For": f"198.51.100.{attempt}"},
+        )
+        assert response.status_code == 401
+
+    throttled_response = client.post(
+        "/api/admin/auth/login",
+        json={
+            "username": "missing-user",
+            "password": "definitely-wrong",
+            "remember_me": False,
+        },
+        headers={"X-Forwarded-For": "203.0.113.9"},
+    )
+    assert throttled_response.status_code == 429
 
 
 def test_openapi_endpoint(seeded_db):
@@ -2800,6 +3522,7 @@ def test_roles_gate_admin_api_access(empty_db):
     )
     assert editor_create_response.status_code == 201
     assert "routes.write" in editor_create_response.json()["permissions"]
+    assert "runtime.read" in editor_create_response.json()["permissions"]
 
     viewer_headers = _login_headers(
         client,
@@ -2850,6 +3573,73 @@ def test_roles_gate_admin_api_access(empty_db):
     viewer_read_user_response = client.get("/api/admin/users/1", headers=viewer_headers)
     assert viewer_read_user_response.status_code == 403
 
+    connection_response = client.post(
+        "/api/admin/connections",
+        json={
+            "name": "Viewer secret boundary",
+            "connector_type": "http",
+            "description": "Runtime-only config",
+            "config": {
+                "base_url": "https://api.example.com",
+                "headers": {"x-api-key": "shared-secret"},
+            },
+            "is_active": True,
+        },
+        headers=admin_headers,
+    )
+    assert connection_response.status_code == 201
+
+    runtime_route_response = client.post(
+        "/api/admin/endpoints",
+        json=_endpoint_payload(name="Viewer runtime route", path="/api/viewer-runtime-route"),
+        headers=admin_headers,
+    )
+    assert runtime_route_response.status_code == 201
+    runtime_route = runtime_route_response.json()
+
+    implementation_response = client.put(
+        f"/api/admin/endpoints/{runtime_route['id']}/implementation/current",
+        json={"flow_definition": _live_route_flow_definition(body={"status": "runtime-ok"})},
+        headers=admin_headers,
+    )
+    assert implementation_response.status_code == 200
+
+    publish_response = client.post(
+        f"/api/admin/endpoints/{runtime_route['id']}/deployments/publish",
+        json={"environment": "production"},
+        headers=admin_headers,
+    )
+    assert publish_response.status_code == 201
+
+    public_runtime_response = client.get("/api/viewer-runtime-route")
+    assert public_runtime_response.status_code == 200
+
+    admin_execution_list_response = client.get(
+        f"/api/admin/executions?endpoint_id={runtime_route['id']}&limit=5",
+        headers=admin_headers,
+    )
+    assert admin_execution_list_response.status_code == 200
+    execution_id = admin_execution_list_response.json()[0]["id"]
+
+    viewer_connections_response = client.get("/api/admin/connections", headers=viewer_headers)
+    assert viewer_connections_response.status_code == 403
+    assert "cannot view runtime connections or execution history" in viewer_connections_response.json()["detail"]
+
+    viewer_executions_response = client.get(
+        f"/api/admin/executions?endpoint_id={runtime_route['id']}&limit=5",
+        headers=viewer_headers,
+    )
+    assert viewer_executions_response.status_code == 403
+
+    viewer_execution_detail_response = client.get(
+        f"/api/admin/executions/{execution_id}",
+        headers=viewer_headers,
+    )
+    assert viewer_execution_detail_response.status_code == 403
+
+    viewer_telemetry_response = client.get("/api/admin/telemetry/executions?limit=5&top=3", headers=viewer_headers)
+    assert viewer_telemetry_response.status_code == 403
+
     editor_list_response = client.get("/api/admin/endpoints", headers=editor_headers)
     assert editor_list_response.status_code == 200
 
@@ -2863,6 +3653,27 @@ def test_roles_gate_admin_api_access(empty_db):
 
     editor_users_response = client.get("/api/admin/users", headers=editor_headers)
     assert editor_users_response.status_code == 403
+
+    editor_connections_response = client.get("/api/admin/connections", headers=editor_headers)
+    assert editor_connections_response.status_code == 200
+    assert editor_connections_response.json()[0]["config"]["headers"]["x-api-key"] == REDACTED_CONNECTION_SECRET
+    assert editor_connections_response.json()[0]["secret_fields"] == ["config.headers"]
+
+    editor_executions_response = client.get(
+        f"/api/admin/executions?endpoint_id={runtime_route['id']}&limit=5",
+        headers=editor_headers,
+    )
+    assert editor_executions_response.status_code == 200
+    assert editor_executions_response.json()[0]["id"] == execution_id
+
+    editor_execution_detail_response = client.get(
+        f"/api/admin/executions/{execution_id}",
+        headers=editor_headers,
+    )
+    assert editor_execution_detail_response.status_code == 200
+
+    editor_telemetry_response = client.get("/api/admin/telemetry/executions?limit=5&top=3", headers=editor_headers)
+    assert editor_telemetry_response.status_code == 200
 
 
 def test_private_admin_paths_cannot_be_created_as_public_mocks(empty_db):

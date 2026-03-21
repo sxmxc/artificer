@@ -26,17 +26,19 @@ from app.models import (
     RouteImplementation,
 )
 from app.schemas import (
-    ConnectionCreate,
+    CredentialCreate,
+    CredentialRead,
+    CredentialUpdate,
     ExecutionTelemetryOverview,
     ExecutionTelemetryRouteSummary,
     ExecutionTelemetryStepSummary,
-    ConnectionUpdate,
     ExecutionRunDetail,
     ExecutionRunRead,
     ExecutionStepRead,
     RouteImplementationRead,
     RouteImplementationUpsert,
 )
+from app.services.credential_crypto import decrypt_secret_material, encrypt_secret_material
 from app.services.schema_contract import extract_request_body_schema, extract_request_parameter_schemas
 from app.time_utils import utc_now
 
@@ -59,6 +61,30 @@ TEMPLATE_EXPRESSION_PATTERN = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 TRACE_MAX_DEPTH = 4
 TRACE_MAX_ITEMS = 20
 TRACE_MAX_STRING_LENGTH = 280
+TRACE_SECRET_REDACTION_PLACEHOLDER = "<redacted>"
+TRACE_SECRET_KEY_TOKENS = (
+    "api_key",
+    "apikey",
+    "authorization",
+    "cookie",
+    "database_url",
+    "dsn",
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "set_cookie",
+    "token",
+    "x_api_key",
+)
+TRACE_DSN_PASSWORD_PATTERN = re.compile(
+    r"(?i)\b((?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis)://[^:@/\s]+:)([^@/\s]+)(@)"
+)
+TRACE_BEARER_TOKEN_PATTERN = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/\-=]+")
+TRACE_SECRET_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|pwd|dsn|authorization)\b\s*[:=]\s*([^\s,;]+)"
+)
+DISALLOWED_HTTP_PATH_PATTERN = re.compile(r"^(?:https?:)?//", flags=re.IGNORECASE)
 IF_OPERATORS = {
     "contains",
     "equals",
@@ -78,6 +104,10 @@ CONNECTION_PROJECT_MAX_LENGTH = 120
 CONNECTION_ENVIRONMENT_MAX_LENGTH = 64
 CONNECTION_NAME_MAX_LENGTH = 160
 CONNECTION_DESCRIPTION_MAX_LENGTH = 500
+CONNECTION_SECRET_REDACTION_SENTINEL = "__ARTIFICER_REDACTED_SECRET__"
+HTTP_CONNECTION_SECRET_FIELD = "config.headers"
+POSTGRES_CONNECTION_SECRET_FIELDS = ("config.dsn", "config.database_url", "config.url", "config.password")
+POSTGRES_CONNECTION_SECRET_KEYS = ("dsn", "database_url", "url", "password")
 
 
 @dataclass(slots=True)
@@ -200,6 +230,11 @@ def _path_specificity(path: str) -> tuple[int, int, int]:
     static_segments = sum(1 for segment in segments if not (segment.startswith("{") and segment.endswith("}")))
     dynamic_segments = len(segments) - static_segments
     return static_segments, -dynamic_segments, len(segments)
+
+
+def _public_auth_mode_supported(route: EndpointDefinition) -> bool:
+    auth_mode = route.auth_mode.value if hasattr(route.auth_mode, "value") else route.auth_mode
+    return str(auth_mode or "none").strip().lower() == "none"
 
 
 def build_default_flow_definition(route: EndpointDefinition) -> dict[str, Any]:
@@ -584,7 +619,11 @@ def _sanitize_trace_value(value: Any, *, depth: int = 0) -> Any:
         result: dict[str, Any] = {}
         items = list(value.items())
         for key, child in items[:TRACE_MAX_ITEMS]:
-            result[str(key)] = _sanitize_trace_value(child, depth=depth + 1)
+            key_text = str(key)
+            if _is_secret_trace_key(key_text):
+                result[key_text] = TRACE_SECRET_REDACTION_PLACEHOLDER
+                continue
+            result[key_text] = _sanitize_trace_value(child, depth=depth + 1)
         if len(items) > TRACE_MAX_ITEMS:
             result["__truncated_keys__"] = len(items) - TRACE_MAX_ITEMS
         return result
@@ -595,10 +634,44 @@ def _sanitize_trace_value(value: Any, *, depth: int = 0) -> Any:
             items.append(f"<{len(value) - TRACE_MAX_ITEMS} more items>")
         return items
 
-    if isinstance(value, str) and len(value) > TRACE_MAX_STRING_LENGTH:
-        return f"{value[:TRACE_MAX_STRING_LENGTH - 3]}..."
+    if isinstance(value, str):
+        sanitized_text = _sanitize_secret_trace_string(value)
+        if len(sanitized_text) > TRACE_MAX_STRING_LENGTH:
+            return f"{sanitized_text[:TRACE_MAX_STRING_LENGTH - 3]}..."
+        return sanitized_text
 
     return _json_safe_value(value)
+
+
+def _normalize_trace_key(key: str) -> str:
+    return key.strip().lower().replace("-", "_")
+
+
+def _is_secret_trace_key(key: str) -> bool:
+    normalized = _normalize_trace_key(key)
+    return any(token in normalized for token in TRACE_SECRET_KEY_TOKENS)
+
+
+def _sanitize_secret_trace_string(value: str) -> str:
+    sanitized = TRACE_DSN_PASSWORD_PATTERN.sub(
+        lambda match: f"{match.group(1)}{TRACE_SECRET_REDACTION_PLACEHOLDER}{match.group(3)}",
+        value,
+    )
+    sanitized = TRACE_BEARER_TOKEN_PATTERN.sub(
+        f"Bearer {TRACE_SECRET_REDACTION_PLACEHOLDER}",
+        sanitized,
+    )
+    sanitized = TRACE_SECRET_ASSIGNMENT_PATTERN.sub(
+        lambda match: f"{match.group(1)}={TRACE_SECRET_REDACTION_PLACEHOLDER}",
+        sanitized,
+    )
+    return sanitized
+
+
+def _sanitize_trace_error_message(error_message: str | None) -> str | None:
+    if error_message in {None, ""}:
+        return error_message
+    return str(_sanitize_trace_value(error_message))
 
 
 def _json_safe_value(value: Any) -> Any:
@@ -645,6 +718,92 @@ def _http_connection_summary(connection: Connection) -> dict[str, Any]:
         "name": connection.name,
         "connector_type": connector_type,
     }
+
+
+def _is_redacted_connection_secret(value: Any) -> bool:
+    return isinstance(value, str) and value.strip() == CONNECTION_SECRET_REDACTION_SENTINEL
+
+
+def _connection_settings_copy(settings: Any) -> dict[str, Any]:
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
+def _credential_secret_material(connection: Connection) -> dict[str, Any]:
+    encrypted = str(connection.secret_material_encrypted or "").strip()
+    if not encrypted:
+        return {}
+    try:
+        decrypted = decrypt_secret_material(encrypted)
+    except ValueError:
+        return {}
+    return decrypted if isinstance(decrypted, dict) else {}
+
+
+def _connection_runtime_config(connection: Connection) -> dict[str, Any]:
+    settings = _connection_settings_copy(connection.settings)
+    secrets = _credential_secret_material(connection)
+    if connection.connector_type == ConnectionType.http:
+        headers = secrets.get("headers")
+        if isinstance(headers, dict) and headers:
+            settings["headers"] = {str(key): str(value) for key, value in headers.items() if value not in {None, ""}}
+        return settings
+
+    if connection.connector_type == ConnectionType.postgres:
+        for key in POSTGRES_CONNECTION_SECRET_KEYS:
+            value = secrets.get(key)
+            if value in {None, ""}:
+                continue
+            settings[key] = str(value)
+        return settings
+
+    return settings
+
+
+def _redacted_connection_read_config(connection: Connection) -> tuple[dict[str, Any], list[str]]:
+    config = _connection_runtime_config(connection)
+
+    if connection.connector_type == ConnectionType.http:
+        headers = config.get("headers")
+        if isinstance(headers, dict) and headers:
+            config["headers"] = {
+                str(key): CONNECTION_SECRET_REDACTION_SENTINEL
+                for key in headers.keys()
+            }
+            return config, [HTTP_CONNECTION_SECRET_FIELD]
+        return config, []
+
+    if connection.connector_type == ConnectionType.postgres:
+        secret_fields: list[str] = []
+        for field_path in POSTGRES_CONNECTION_SECRET_FIELDS:
+            key = field_path.removeprefix("config.")
+            if config.get(key) in {None, ""}:
+                continue
+            config[key] = CONNECTION_SECRET_REDACTION_SENTINEL
+            secret_fields.append(field_path)
+        return config, secret_fields
+
+    return config, []
+
+
+def build_credential_read(connection: Connection) -> CredentialRead:
+    config, secret_fields = _redacted_connection_read_config(connection)
+    return CredentialRead(
+        id=int(connection.id or 0),
+        project=connection.project,
+        environment=connection.environment,
+        name=connection.name,
+        connector_type=connection.connector_type,
+        description=connection.description,
+        config=config,
+        is_active=bool(connection.is_active),
+        secret_fields=secret_fields,
+        created_at=connection.created_at,
+        updated_at=connection.updated_at,
+    )
+
+
+def build_connection_read(connection: Connection) -> CredentialRead:
+    return build_credential_read(connection)
 
 
 def _validate_http_connection_config(config: dict[str, Any]) -> None:
@@ -695,7 +854,7 @@ def _validate_connection_text_length(*, value: str, label: str, max_length: int)
         raise ValueError(f"{label} must be {max_length} characters or fewer.")
 
 
-def _normalize_connection_payload(payload: ConnectionCreate | ConnectionUpdate) -> ConnectionCreate:
+def _normalize_connection_payload(payload: CredentialCreate | CredentialUpdate) -> CredentialCreate:
     project = _normalize_connection_scope_value(payload.project, default="default")
     environment = _normalize_connection_scope_value(payload.environment, default="production")
     name = str(payload.name or "").strip()
@@ -725,7 +884,7 @@ def _normalize_connection_payload(payload: ConnectionCreate | ConnectionUpdate) 
             max_length=CONNECTION_DESCRIPTION_MAX_LENGTH,
         )
 
-    return ConnectionCreate(
+    return CredentialCreate(
         project=project,
         environment=environment,
         name=name,
@@ -736,7 +895,7 @@ def _normalize_connection_payload(payload: ConnectionCreate | ConnectionUpdate) 
     )
 
 
-def _validate_connection_payload(payload: ConnectionCreate | ConnectionUpdate) -> ConnectionCreate:
+def _validate_connection_payload(payload: CredentialCreate | CredentialUpdate) -> CredentialCreate:
     normalized = _normalize_connection_payload(payload)
     config = normalized.config if isinstance(normalized.config, dict) else {}
     if normalized.connector_type == ConnectionType.http:
@@ -746,6 +905,78 @@ def _validate_connection_payload(payload: ConnectionCreate | ConnectionUpdate) -
         _validate_postgres_connection_config(config)
         return normalized
     raise ValueError(f"Unsupported connection type '{normalized.connector_type}'.")
+
+
+def _split_http_connection_config(
+    config: dict[str, Any],
+    *,
+    existing_secret_material: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    settings = dict(config)
+    submitted_headers = settings.pop("headers", None)
+    existing_headers = (
+        existing_secret_material.get("headers")
+        if isinstance(existing_secret_material, dict)
+        else None
+    )
+
+    merged_headers: dict[str, str] = {}
+    if isinstance(submitted_headers, dict):
+        for key, value in submitted_headers.items():
+            header_name = str(key)
+            if _is_redacted_connection_secret(value):
+                if isinstance(existing_headers, dict) and header_name in existing_headers:
+                    merged_headers[header_name] = str(existing_headers[header_name])
+                continue
+            if value in {None, ""}:
+                continue
+            merged_headers[header_name] = str(value)
+    elif isinstance(existing_headers, dict):
+        merged_headers = {
+            str(key): str(value)
+            for key, value in existing_headers.items()
+            if value not in {None, ""}
+        }
+
+    secret_material = {"headers": merged_headers} if merged_headers else {}
+    return settings, secret_material
+
+
+def _split_postgres_connection_config(
+    config: dict[str, Any],
+    *,
+    existing_secret_material: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    settings = dict(config)
+    secret_material: dict[str, Any] = {}
+    existing = existing_secret_material if isinstance(existing_secret_material, dict) else {}
+
+    for key in POSTGRES_CONNECTION_SECRET_KEYS:
+        raw_value = settings.pop(key, None)
+        if _is_redacted_connection_secret(raw_value):
+            if existing.get(key) not in {None, ""}:
+                secret_material[key] = str(existing[key])
+            continue
+        if raw_value in {None, ""}:
+            if key not in config and existing.get(key) not in {None, ""}:
+                secret_material[key] = str(existing[key])
+            continue
+        secret_material[key] = str(raw_value)
+
+    return settings, secret_material
+
+
+def _split_connection_config(
+    *,
+    connector_type: ConnectionType,
+    config: dict[str, Any],
+    existing_secret_material: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if connector_type == ConnectionType.http:
+        return _split_http_connection_config(config, existing_secret_material=existing_secret_material)
+    if connector_type == ConnectionType.postgres:
+        return _split_postgres_connection_config(config, existing_secret_material=existing_secret_material)
+    return dict(config), {}
 
 
 def _find_connection_name_conflict(
@@ -948,9 +1179,30 @@ def _normalize_http_timeout(raw_timeout: Any, *, fallback: int = 10000) -> int:
 
 
 def _build_http_url(base_url: str, path: str) -> str:
-    if re.match(r"^https?://", path, flags=re.IGNORECASE):
-        return path
+    if DISALLOWED_HTTP_PATH_PATTERN.match(path):
+        raise ValueError("HTTP Request paths must be relative and cannot override the connection base_url.")
     return urljoin(f"{base_url.rstrip('/')}/", path.lstrip("/"))
+
+
+def _normalize_header_name(name: str) -> str:
+    return str(name).strip().lower()
+
+
+def _protected_header_collisions(
+    connection_headers: dict[str, str],
+    node_headers: dict[str, str],
+) -> list[str]:
+    connection_by_normalized = {
+        _normalize_header_name(key): key
+        for key in connection_headers.keys()
+        if _normalize_header_name(key)
+    }
+    collisions = {
+        connection_by_normalized[normalized]
+        for normalized in (_normalize_header_name(key) for key in node_headers.keys())
+        if normalized in connection_by_normalized
+    }
+    return sorted(collisions)
 
 
 def _parse_http_response_body(response: httpx.Response) -> Any:
@@ -1035,18 +1287,15 @@ def _node_error_result(
         status="error",
         input_data=_to_json_object(_sanitize_trace_value(step_input)),
         output_data=None,
-        error_message=error.error_message,
+        error_message=_sanitize_trace_error_message(error.error_message),
         started_at=started_at,
     )
     return ExecutionResult(
         status_code=error.status_code,
-        body={
-            "error": error.public_message,
-            "details": error.error_message,
-        },
+        body={"error": error.public_message},
         status="error",
         steps=steps,
-        error_message=error.error_message,
+        error_message=_sanitize_trace_error_message(error.error_message),
     )
 
 
@@ -1065,6 +1314,7 @@ def _append_execution_step(
     completed_at = utc_now()
     safe_input_data = _to_json_object(_json_safe_value(input_data))
     safe_output_data = _to_json_object(_json_safe_value(output_data)) if output_data is not None else None
+    safe_error_message = _sanitize_trace_error_message(error_message)
     steps.append(
         ExecutionStepResult(
             node_id=node_id,
@@ -1073,7 +1323,7 @@ def _append_execution_step(
             status=status,
             input_data=safe_input_data,
             output_data=safe_output_data,
-            error_message=error_message,
+            error_message=safe_error_message,
             started_at=started_at or completed_at,
             completed_at=completed_at,
         )
@@ -1665,7 +1915,7 @@ def execute_live_route(
                     expected_type=ConnectionType.http,
                     node_label="HTTP Request",
                 )
-                connection_config = connection.config if isinstance(connection.config, dict) else {}
+                connection_config = _connection_runtime_config(connection)
                 try:
                     _validate_http_connection_config(connection_config)
                 except ValueError as error:
@@ -1703,7 +1953,23 @@ def execute_live_route(
                     node_config.get("timeout_ms", connection_config.get("timeout_ms")),
                     fallback=10000,
                 )
-                url = _build_http_url(str(connection_config.get("base_url") or ""), path)
+                try:
+                    url = _build_http_url(str(connection_config.get("base_url") or ""), path)
+                except ValueError as error:
+                    raise RouteExecutionError(
+                        public_message="HTTP Request step requires a relative path.",
+                        error_message=str(error),
+                    ) from error
+                header_collisions = _protected_header_collisions(connection_headers, node_headers)
+                if header_collisions:
+                    joined_collisions = ", ".join(header_collisions)
+                    raise RouteExecutionError(
+                        public_message="HTTP Request step attempted to override protected headers.",
+                        error_message=(
+                            "HTTP Request node headers collide with protected connection headers: "
+                            f"{joined_collisions}."
+                        ),
+                    )
                 request_headers = {
                     **connection_headers,
                     **node_headers,
@@ -1816,7 +2082,7 @@ def execute_live_route(
                     expected_type=ConnectionType.postgres,
                     node_label="Postgres Query",
                 )
-                connection_config = connection.config if isinstance(connection.config, dict) else {}
+                connection_config = _connection_runtime_config(connection)
                 try:
                     _validate_postgres_connection_config(connection_config)
                 except ValueError as error:
@@ -2144,7 +2410,7 @@ def unpublish_route_implementation(
     return active_deployments[0]
 
 
-def list_connections(
+def list_credentials(
     session: Session,
     *,
     project: str | None = None,
@@ -2161,7 +2427,7 @@ def list_connections(
     return list(session.execute(statement).scalars())
 
 
-def create_connection(session: Session, payload: ConnectionCreate) -> Connection:
+def create_credential(session: Session, payload: CredentialCreate) -> Connection:
     normalized = _normalize_connection_payload(payload)
     existing = _find_connection_name_conflict(
         session,
@@ -2176,8 +2442,22 @@ def create_connection(session: Session, payload: ConnectionCreate) -> Connection
             name=normalized.name,
         )
 
-    validated = _validate_connection_payload(normalized)
-    connection = Connection(**validated.model_dump())
+    submitted_config = normalized.config if isinstance(normalized.config, dict) else {}
+    settings, secret_material = _split_connection_config(
+        connector_type=normalized.connector_type,
+        config=submitted_config,
+    )
+    validated = _validate_connection_payload(normalized.model_copy(update={"config": {**settings, **secret_material}}))
+    connection = Connection(
+        project=validated.project,
+        environment=validated.environment,
+        name=validated.name,
+        connector_type=validated.connector_type,
+        description=validated.description,
+        settings=settings,
+        secret_material_encrypted=(encrypt_secret_material(secret_material) if secret_material else None),
+        is_active=validated.is_active,
+    )
     return _commit_connection_with_conflict_guard(
         session,
         connection=connection,
@@ -2187,7 +2467,7 @@ def create_connection(session: Session, payload: ConnectionCreate) -> Connection
     )
 
 
-def update_connection(session: Session, connection: Connection, payload: ConnectionUpdate) -> Connection:
+def update_credential(session: Session, connection: Connection, payload: CredentialUpdate) -> Connection:
     normalized = _normalize_connection_payload(payload)
     if normalized.connector_type != connection.connector_type:
         raise ValueError(
@@ -2207,9 +2487,22 @@ def update_connection(session: Session, connection: Connection, payload: Connect
             name=normalized.name,
         )
 
-    validated = _validate_connection_payload(normalized)
-    for field, value in validated.model_dump().items():
-        setattr(connection, field, value)
+    submitted_config = normalized.config if isinstance(normalized.config, dict) else {}
+    existing_secret_material = _credential_secret_material(connection)
+    settings, secret_material = _split_connection_config(
+        connector_type=connection.connector_type,
+        config=submitted_config,
+        existing_secret_material=existing_secret_material,
+    )
+    effective_config = {**settings, **secret_material}
+    validated = _validate_connection_payload(normalized.model_copy(update={"config": effective_config}))
+    connection.project = validated.project
+    connection.environment = validated.environment
+    connection.name = validated.name
+    connection.description = validated.description
+    connection.is_active = validated.is_active
+    connection.settings = settings
+    connection.secret_material_encrypted = encrypt_secret_material(secret_material) if secret_material else None
     connection.updated_at = utc_now()
     return _commit_connection_with_conflict_guard(
         session,
@@ -2218,6 +2511,23 @@ def update_connection(session: Session, connection: Connection, payload: Connect
         scope_environment=validated.environment,
         scope_name=validated.name,
     )
+
+
+def list_connections(
+    session: Session,
+    *,
+    project: str | None = None,
+    environment: str | None = None,
+) -> list[Connection]:
+    return list_credentials(session, project=project, environment=environment)
+
+
+def create_connection(session: Session, payload: CredentialCreate) -> Connection:
+    return create_credential(session, payload)
+
+
+def update_connection(session: Session, connection: Connection, payload: CredentialUpdate) -> Connection:
+    return update_credential(session, connection, payload)
 
 
 def _route_implementation_uses_connection(implementation: RouteImplementation, connection_id: int) -> bool:
@@ -2337,7 +2647,7 @@ def _compile_deployed_routes(session: Session) -> list[CompiledDeployedRoute]:
     for deployment in deployments:
         route = session.get(EndpointDefinition, deployment.route_id)
         implementation = session.get(RouteImplementation, deployment.implementation_id)
-        if route is None or implementation is None or not route.enabled:
+        if route is None or implementation is None or not route.enabled or not _public_auth_mode_supported(route):
             continue
 
         flow = _validate_flow_definition(
@@ -2442,14 +2752,18 @@ def execute_deployed_route_request(
         method=matched.compiled_route.route_method.upper(),
         path=matched.compiled_route.route_path,
         status=result.status,
-        request_data={
-            "path_parameters": matched.path_parameters,
-            "query_parameters": query_parameters,
-            "body_present": request_body is not None,
-        },
+        request_data=_to_json_object(
+            _sanitize_trace_value(
+                {
+                    "path_parameters": matched.path_parameters,
+                    "query_parameters": query_parameters,
+                    "body_present": request_body is not None,
+                }
+            )
+        ),
         response_status_code=result.status_code,
-        response_body=_to_json_object(_json_safe_value(result.body)),
-        error_message=result.error_message,
+        response_body=_to_json_object(_sanitize_trace_value(result.body)),
+        error_message=_sanitize_trace_error_message(result.error_message),
         started_at=started_at,
         completed_at=utc_now(),
     )
@@ -2466,7 +2780,7 @@ def execute_deployed_route_request(
                 status=step.status,
                 input_data=step.input_data,
                 output_data=step.output_data,
-                error_message=step.error_message,
+                error_message=_sanitize_trace_error_message(step.error_message),
                 started_at=step.started_at or started_at,
                 completed_at=step.completed_at or utc_now(),
             )

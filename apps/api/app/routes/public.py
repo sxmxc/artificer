@@ -14,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from app.db import session_scope
 from app.services.api_health import build_api_health
 from app.services.mock_generation import preview_from_schema
-from app.services.public_routes import list_legacy_fallback_endpoints
+from app.services.public_routes import list_legacy_fallback_endpoints, list_unsupported_auth_public_endpoints
 from app.services.route_runtime import execute_deployed_route_request
 
 router = APIRouter()
@@ -26,6 +26,7 @@ class MatchedEndpoint:
     id: int
     method: str
     path: str
+    auth_mode: str
     response_schema: Any
     seed_key: str | None
     success_status_code: int
@@ -84,6 +85,7 @@ def _find_matching_endpoint(request_path: str, method: str) -> tuple[MatchedEndp
                 id=int(endpoint.id or 0),
                 method=endpoint.method,
                 path=endpoint.path,
+                auth_mode=str(endpoint.auth_mode.value if hasattr(endpoint.auth_mode, "value") else endpoint.auth_mode),
                 response_schema=endpoint.response_schema,
                 seed_key=endpoint.seed_key,
                 success_status_code=endpoint.success_status_code,
@@ -95,6 +97,31 @@ def _find_matching_endpoint(request_path: str, method: str) -> tuple[MatchedEndp
         )
 
     return None, {}
+
+
+def _find_unsupported_auth_endpoint(request_path: str, method: str) -> MatchedEndpoint | None:
+    with session_scope() as session:
+        endpoints = list_unsupported_auth_public_endpoints(session, limit=1000)
+
+    for endpoint in endpoints:
+        if endpoint.method.upper() != method:
+            continue
+        if _match_path_parameters(request_path, endpoint.path) is None:
+            continue
+        return MatchedEndpoint(
+            id=int(endpoint.id or 0),
+            method=endpoint.method,
+            path=endpoint.path,
+            auth_mode=str(endpoint.auth_mode.value if hasattr(endpoint.auth_mode, "value") else endpoint.auth_mode),
+            response_schema=endpoint.response_schema,
+            seed_key=endpoint.seed_key,
+            success_status_code=endpoint.success_status_code,
+            latency_min_ms=endpoint.latency_min_ms,
+            latency_max_ms=endpoint.latency_max_ms,
+            error_rate=endpoint.error_rate,
+        )
+
+    return None
 
 
 def _pick_response(
@@ -142,6 +169,22 @@ async def catchall(full_path: str, request: Request) -> Response:
     method = request.method.upper()
     request_body = await _parse_json_request_body(request)
     query_parameters = {key: value for key, value in request.query_params.items()}
+
+    unsupported_auth_match = await run_in_threadpool(_find_unsupported_auth_endpoint, request_path, method)
+    if unsupported_auth_match is not None:
+        return Response(
+            status_code=501,
+            content=json.dumps(
+                {
+                    "error": (
+                        "This route's auth mode is not supported by the public runtime yet. "
+                        "Only auth_mode 'none' is currently supported."
+                    ),
+                    "auth_mode": unsupported_auth_match.auth_mode,
+                }
+            ),
+            media_type="application/json",
+        )
 
     deployed_result = await run_in_threadpool(
         _dispatch_deployed_route,

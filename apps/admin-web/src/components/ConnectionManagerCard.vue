@@ -5,6 +5,8 @@ import type { Connection, ConnectionPayload, ConnectionType, JsonObject } from "
 
 const DEFAULT_CONNECTION_PROJECT = "default";
 const DEFAULT_CONNECTION_ENVIRONMENT = "production";
+const REDACTED_CONNECTION_SECRET = "__ARTIFICER_REDACTED_SECRET__";
+const STORED_SECRET_PLACEHOLDER = "<stored secret>";
 
 interface ConnectionFormState {
   project: string;
@@ -76,6 +78,28 @@ function asJsonObject(value: unknown): JsonObject | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
 }
 
+function hasSecretField(connection: Connection | null, fieldPath: string): boolean {
+  return Boolean(connection?.secret_fields?.includes(fieldPath));
+}
+
+function displaySecretValue(value: string, options: { redacted: boolean }): string {
+  if (!options.redacted) {
+    return value;
+  }
+  return STORED_SECRET_PLACEHOLDER;
+}
+
+function displayHeadersJson(connection: Connection, config: JsonObject): string {
+  const headers = asJsonObject(config.headers) ?? {};
+  if (!hasSecretField(connection, "config.headers")) {
+    return formatJsonObject(headers);
+  }
+  const redactedHeaders = Object.fromEntries(
+    Object.keys(headers).map((key) => [key, STORED_SECRET_PLACEHOLDER]),
+  );
+  return formatJsonObject(redactedHeaders);
+}
+
 function buildEmptyForm(project: string, environment: string): ConnectionFormState {
   return {
     project,
@@ -109,6 +133,11 @@ function buildFormFromConnection(
 
   const config = asJsonObject(connection.config) ?? {};
   const dsnValue = String(config.dsn ?? config.database_url ?? config.url ?? "").trim();
+  const hasStoredDsn =
+    hasSecretField(connection, "config.dsn") ||
+    hasSecretField(connection, "config.database_url") ||
+    hasSecretField(connection, "config.url");
+  const passwordValue = String(config.password ?? "").trim();
 
   return {
     project: normalizeScopeValue(connection.project, project),
@@ -119,14 +148,14 @@ function buildFormFromConnection(
     is_active: connection.is_active,
     base_url: String(config.base_url ?? "").trim(),
     timeout_ms: config.timeout_ms == null ? "" : String(config.timeout_ms),
-    headers_json: formatJsonObject(config.headers),
-    use_dsn: Boolean(dsnValue),
-    dsn: dsnValue,
+    headers_json: displayHeadersJson(connection, config),
+    use_dsn: Boolean(dsnValue) || hasStoredDsn,
+    dsn: displaySecretValue(dsnValue, { redacted: hasStoredDsn }),
     host: String(config.host ?? "").trim(),
     port: config.port == null ? "" : String(config.port),
     database: String(config.database ?? config.dbname ?? "").trim(),
     user: String(config.user ?? config.username ?? "").trim(),
-    password: String(config.password ?? "").trim(),
+    password: displaySecretValue(passwordValue, { redacted: hasSecretField(connection, "config.password") }),
     sslmode: String(config.sslmode ?? "").trim(),
   };
 }
@@ -145,12 +174,15 @@ function parseJsonObjectInput(value: string, label: string): JsonObject | string
   }
 }
 
-function buildConnectionPayloadFromForm(form: ConnectionFormState): ConnectionPayload | string {
+function buildConnectionPayloadFromForm(
+  form: ConnectionFormState,
+  secretFields: Set<string>,
+): ConnectionPayload | string {
   const project = normalizeScopeValue(form.project, DEFAULT_CONNECTION_PROJECT);
   const environment = normalizeScopeValue(form.environment, DEFAULT_CONNECTION_ENVIRONMENT);
   const name = form.name.trim();
   if (!name) {
-    return "Connection name is required.";
+    return "Credential name is required.";
   }
 
   const description = form.description.trim() || null;
@@ -158,19 +190,27 @@ function buildConnectionPayloadFromForm(form: ConnectionFormState): ConnectionPa
   if (form.connector_type === "http") {
     const baseUrl = form.base_url.trim();
     if (!baseUrl) {
-      return "HTTP connections require a base URL.";
+      return "HTTP credentials require a base URL.";
     }
 
     const headers = parseJsonObjectInput(form.headers_json, "HTTP headers");
     if (typeof headers === "string") {
       return headers;
     }
+    const normalizedHeaders = Object.fromEntries(
+      Object.entries(headers).map(([key, value]) => [
+        key,
+        value === STORED_SECRET_PLACEHOLDER && secretFields.has("config.headers")
+          ? REDACTED_CONNECTION_SECRET
+          : value,
+      ]),
+    );
 
     const config: JsonObject = {
       base_url: baseUrl,
     };
-    if (Object.keys(headers).length > 0) {
-      config.headers = headers;
+    if (Object.keys(normalizedHeaders).length > 0) {
+      config.headers = normalizedHeaders;
     }
     if (form.timeout_ms.trim()) {
       const timeout = Number(form.timeout_ms.trim());
@@ -195,21 +235,28 @@ function buildConnectionPayloadFromForm(form: ConnectionFormState): ConnectionPa
   if (form.use_dsn) {
     const dsn = form.dsn.trim();
     if (!dsn) {
-      return "Postgres connections require a DSN when DSN mode is enabled.";
+      return "Postgres credentials require a DSN when DSN mode is enabled.";
     }
-    config.dsn = dsn;
+    config.dsn =
+      dsn === STORED_SECRET_PLACEHOLDER &&
+      (secretFields.has("config.dsn") || secretFields.has("config.database_url") || secretFields.has("config.url"))
+        ? REDACTED_CONNECTION_SECRET
+        : dsn;
   } else {
     const host = form.host.trim();
     const database = form.database.trim();
     const user = form.user.trim();
     if (!host || !database || !user) {
-      return "Postgres connections require host, database, and user when DSN mode is off.";
+      return "Postgres credentials require host, database, and user when DSN mode is off.";
     }
     config.host = host;
     config.database = database;
     config.user = user;
     if (form.password.trim()) {
-      config.password = form.password.trim();
+      config.password =
+        form.password.trim() === STORED_SECRET_PLACEHOLDER && secretFields.has("config.password")
+          ? REDACTED_CONNECTION_SECRET
+          : form.password.trim();
     }
     if (form.port.trim()) {
       const port = Number(form.port.trim());
@@ -271,6 +318,7 @@ const filterProject = ref<string | null>(normalizedPreferredProject.value);
 const filterEnvironment = ref<string | null>(normalizedPreferredEnvironment.value);
 const editorDialog = ref(false);
 const editingConnectionId = ref<number | null>(null);
+const editingSecretFields = ref<string[]>([]);
 const formError = ref<string | null>(null);
 const pendingSubmit = ref(false);
 const formState = ref<ConnectionFormState>(
@@ -349,8 +397,9 @@ const filteredConnections = computed(() =>
       );
     }),
 );
-const dialogTitle = computed(() => (editingConnectionId.value === null ? "New connection" : "Edit connection"));
+const dialogTitle = computed(() => (editingConnectionId.value === null ? "New credential" : "Edit credential"));
 const dialogError = computed(() => formError.value || (pendingSubmit.value ? props.errorMessage : null));
+const hasStoredSecretPlaceholders = computed(() => editingSecretFields.value.length > 0);
 
 function isConnectionInPreferredScope(connection: Connection): boolean {
   return (
@@ -366,6 +415,7 @@ function resetScopeFilters(): void {
 
 function openCreateDialog(): void {
   editingConnectionId.value = null;
+  editingSecretFields.value = [];
   formError.value = null;
   pendingSubmit.value = false;
   formState.value = buildEmptyForm(normalizedPreferredProject.value, normalizedPreferredEnvironment.value);
@@ -374,6 +424,7 @@ function openCreateDialog(): void {
 
 function openEditDialog(connection: Connection): void {
   editingConnectionId.value = connection.id;
+  editingSecretFields.value = [...(connection.secret_fields ?? [])];
   formError.value = null;
   pendingSubmit.value = false;
   formState.value = buildFormFromConnection(
@@ -387,6 +438,7 @@ function openEditDialog(connection: Connection): void {
 function closeDialog(): void {
   editorDialog.value = false;
   editingConnectionId.value = null;
+  editingSecretFields.value = [];
   formError.value = null;
   pendingSubmit.value = false;
   formState.value = buildEmptyForm(normalizedPreferredProject.value, normalizedPreferredEnvironment.value);
@@ -394,7 +446,7 @@ function closeDialog(): void {
 
 function submitConnectionForm(): void {
   formError.value = null;
-  const payload = buildConnectionPayloadFromForm(formState.value);
+  const payload = buildConnectionPayloadFromForm(formState.value, new Set(editingSecretFields.value));
   if (typeof payload === "string") {
     formError.value = payload;
     return;
@@ -422,7 +474,7 @@ function toggleConnectionActive(connection: Connection): void {
 
 function requestDeleteConnection(connection: Connection): void {
   const confirmed = window.confirm(
-    `Delete connection "${connection.name}" from scope ${connection.project}/${connection.environment}? This cannot be undone.`,
+    `Delete credential "${connection.name}" from scope ${connection.project}/${connection.environment}? This cannot be undone.`,
   );
   if (!confirmed) {
     return;
@@ -439,10 +491,10 @@ function requestDeleteConnection(connection: Connection): void {
           <v-icon icon="mdi-connection" />
         </v-avatar>
       </template>
-      <v-card-title>Connections</v-card-title>
+      <v-card-title>Credentials</v-card-title>
       <v-card-subtitle>
-        Manage shared HTTP and Postgres connection records by project and environment. Flow nodes still bind a saved
-        connection by id.
+        Manage shared HTTP and Postgres credentials by project and environment. Flow nodes still bind a saved
+        credential by id.
       </v-card-subtitle>
 
       <template #append>
@@ -455,7 +507,7 @@ function requestDeleteConnection(connection: Connection): void {
             variant="tonal"
             @click="openCreateDialog"
           >
-            New connection
+            New credential
           </v-btn>
         </div>
       </template>
@@ -469,7 +521,7 @@ function requestDeleteConnection(connection: Connection): void {
         <v-chip color="accent" label size="small" variant="tonal">
           {{ currentScopeConnectionCount }} in current route scope
         </v-chip>
-        <v-chip color="secondary" label size="small" variant="outlined">{{ connections.length }} total saved</v-chip>
+        <v-chip color="secondary" label size="small" variant="outlined">{{ connections.length }} total saved credentials</v-chip>
       </div>
 
       <v-alert v-if="errorMessage" border="start" color="error" density="compact" variant="tonal">
@@ -483,7 +535,7 @@ function requestDeleteConnection(connection: Connection): void {
         density="compact"
         variant="tonal"
       >
-        No connections currently match the route's default scope. Create one for {{ currentScopeLabel }} or clear the
+        No credentials currently match the route's default scope. Create one for {{ currentScopeLabel }} or clear the
         filters below to inspect other scopes.
       </v-alert>
 
@@ -518,7 +570,7 @@ function requestDeleteConnection(connection: Connection): void {
         type="table-row-divider, table-row-divider, table-row-divider"
       />
       <div v-else-if="filteredConnections.length === 0" class="text-body-2 text-medium-emphasis">
-        No connections match the current filters.
+        No credentials match the current filters.
       </div>
       <div v-else class="connection-manager__list">
         <v-sheet
@@ -598,7 +650,7 @@ function requestDeleteConnection(connection: Connection): void {
         <v-card-item>
           <v-card-title>{{ dialogTitle }}</v-card-title>
           <v-card-subtitle>
-            Scope connection records to the route's current project and deployment environment so operators can rotate
+            Scope credentials to the route's current project and deployment environment so operators can rotate
             credentials without losing context.
           </v-card-subtitle>
         </v-card-item>
@@ -608,6 +660,16 @@ function requestDeleteConnection(connection: Connection): void {
         <v-card-text class="d-flex flex-column ga-4">
           <v-alert v-if="dialogError" border="start" color="error" density="compact" variant="tonal">
             {{ dialogError }}
+          </v-alert>
+          <v-alert
+            v-if="hasStoredSecretPlaceholders"
+            border="start"
+            color="info"
+            density="compact"
+            variant="tonal"
+          >
+            Stored secret values are redacted after save. Leave the placeholder in place to preserve them, or replace it
+            to rotate the secret.
           </v-alert>
 
           <v-row dense>
@@ -630,7 +692,7 @@ function requestDeleteConnection(connection: Connection): void {
               />
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="formState.name" density="compact" label="Connection name" variant="outlined" />
+              <v-text-field v-model="formState.name" density="compact" label="Credential name" variant="outlined" />
             </v-col>
             <v-col cols="12" md="6">
               <v-select
@@ -658,7 +720,7 @@ function requestDeleteConnection(connection: Connection): void {
             color="accent"
             density="compact"
             inset
-            label="Connection is active"
+            label="Credential is active"
           />
 
           <template v-if="formState.connector_type === 'http'">
@@ -787,7 +849,7 @@ function requestDeleteConnection(connection: Connection): void {
             variant="tonal"
             @click="submitConnectionForm"
           >
-            Save connection
+            Save credential
           </v-btn>
         </v-card-actions>
       </v-card>

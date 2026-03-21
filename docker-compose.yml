@@ -25,6 +25,8 @@ services:
       target: dev
     env_file:
       - .env
+    environment:
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-artificer-local-dev-key}
     ports:
       - "8000:8000"
     depends_on:
@@ -56,3 +58,4 @@ volumes:
   admin_web_node_modules:
   pgdata:
     name: ${POSTGRES_VOLUME_NAME:-urban_octo_bassoon_pgdata}
+    external: true

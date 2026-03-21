@@ -33,6 +33,7 @@ import type {
 const authStub = vi.hoisted(() => ({
   logout: vi.fn(),
   canPreviewRoutes: { value: true },
+  canReadRuntime: { value: true },
   canWriteRoutes: { value: true },
   mustChangePassword: { value: false },
   session: {
@@ -48,7 +49,7 @@ const authStub = vi.hoisted(() => ({
         gravatar_url: "https://www.gravatar.com/avatar/admin?d=identicon&s=160",
         is_active: true,
         role: "superuser",
-        permissions: ["routes.read", "routes.write", "routes.preview", "users.manage"],
+        permissions: ["routes.read", "routes.write", "routes.preview", "runtime.read", "users.manage"],
         is_superuser: true,
         must_change_password: false,
         last_login_at: null,
@@ -267,7 +268,7 @@ function createRouterInstance() {
     history: createMemoryHistory(),
     routes: [
       { path: "/login", name: "login", component: viewStub },
-      { path: "/connectors", name: "connectors", component: viewStub },
+      { path: "/credentials", name: "credentials", component: viewStub },
       { path: "/endpoints", name: "endpoints-browse", component: viewStub },
       { path: "/endpoints/new", name: "endpoints-create", component: viewStub },
       { path: "/endpoints/:endpointId", name: "endpoints-edit", component: viewStub },
@@ -509,8 +510,12 @@ describe("EndpointsView", () => {
     vi.mocked(updateEndpoint).mockReset();
     authStub.logout.mockReset();
     authStub.canPreviewRoutes.value = true;
+    authStub.canReadRuntime.value = true;
     authStub.canWriteRoutes.value = true;
     authStub.mustChangePassword.value = false;
+    authStub.session.value.user.role = "superuser";
+    authStub.session.value.user.permissions = ["routes.read", "routes.write", "routes.preview", "runtime.read", "users.manage"];
+    authStub.session.value.user.is_superuser = true;
     vi.mocked(getCurrentRouteImplementation).mockResolvedValue(createImplementation(1));
     vi.mocked(listRouteDeployments).mockResolvedValue([createDeployment(1)]);
     vi.mocked(listExecutions).mockResolvedValue([createExecution(1)]);
@@ -805,6 +810,24 @@ describe("EndpointsView", () => {
     expect(screen.getByTestId("browse-telemetry-slow-steps")).toHaveTextContent("Avg 210 ms");
   });
 
+  it("does not request runtime telemetry for viewer browse access", async () => {
+    authStub.canReadRuntime.value = false;
+    authStub.canWriteRoutes.value = false;
+    authStub.session.value.user.role = "viewer";
+    authStub.session.value.user.permissions = ["routes.read", "routes.preview"];
+    authStub.session.value.user.is_superuser = false;
+    vi.mocked(listEndpoints).mockResolvedValue([createEndpoint(1, { name: "List users" })]);
+
+    await renderView("/endpoints", "browse");
+    await flushPromises();
+
+    expect(getExecutionTelemetryOverview).not.toHaveBeenCalled();
+    expect(screen.getByTestId("browse-telemetry-access-note")).toHaveTextContent(
+      "runtime execution history and telemetry require edit access",
+    );
+    expect(screen.queryByTestId("browse-telemetry-runs")).not.toBeInTheDocument();
+  });
+
   it("keeps route identity fields and the create action visible on the overview create flow", async () => {
     vi.mocked(listEndpoints).mockResolvedValue([]);
 
@@ -1046,16 +1069,16 @@ describe("EndpointsView", () => {
     );
   });
 
-  it("opens the dedicated connectors page from flow connector context", async () => {
+  it("opens the dedicated credentials page from flow credential context", async () => {
     vi.mocked(listEndpoints).mockResolvedValue([createEndpoint(1, { name: "List users" })]);
     const { router } = await renderView("/endpoints/1?tab=flow", "edit");
     await flushPromises();
     const pushSpy = vi.spyOn(router, "push");
 
-    await fireEvent.click(screen.getByRole("button", { name: "Open Connectors" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Open Credentials" }));
     await flushPromises();
 
-    expect(pushSpy).toHaveBeenCalledWith({ name: "connectors" });
+    expect(pushSpy).toHaveBeenCalledWith({ name: "credentials" });
   });
 
   it("warns before browser unload when the flow draft is dirty", async () => {

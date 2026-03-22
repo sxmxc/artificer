@@ -84,7 +84,7 @@ TRACE_BEARER_TOKEN_PATTERN = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/\-=]+")
 TRACE_SECRET_ASSIGNMENT_PATTERN = re.compile(
     r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|pwd|dsn|authorization)\b\s*[:=]\s*([^\s,;]+)"
 )
-DISALLOWED_HTTP_PATH_PATTERN = re.compile(r"^(?:https?:)?//", flags=re.IGNORECASE)
+DISALLOWED_HTTP_PATH_PATTERN = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.\-]*:|//)", flags=re.IGNORECASE)
 IF_OPERATORS = {
     "contains",
     "equals",
@@ -108,6 +108,7 @@ CONNECTION_SECRET_REDACTION_SENTINEL = "__ARTIFICER_REDACTED_SECRET__"
 HTTP_CONNECTION_SECRET_FIELD = "config.headers"
 POSTGRES_CONNECTION_SECRET_FIELDS = ("config.dsn", "config.database_url", "config.url", "config.password")
 POSTGRES_CONNECTION_SECRET_KEYS = ("dsn", "database_url", "url", "password")
+POSTGRES_DSN_SECRET_KEYS = ("dsn", "database_url", "url")
 
 
 @dataclass(slots=True)
@@ -961,8 +962,16 @@ def _split_postgres_connection_config(
     for key in POSTGRES_CONNECTION_SECRET_KEYS:
         raw_value = settings.pop(key, None)
         if _is_redacted_connection_secret(raw_value):
-            if existing.get(key) not in {None, ""}:
-                secret_material[key] = str(existing[key])
+            existing_value = (
+                next(
+                    (existing[alias] for alias in POSTGRES_DSN_SECRET_KEYS if existing.get(alias) not in {None, ""}),
+                    None,
+                )
+                if key in POSTGRES_DSN_SECRET_KEYS
+                else existing.get(key)
+            )
+            if existing_value not in {None, ""}:
+                secret_material[key] = str(existing_value)
             continue
         if raw_value in {None, ""}:
             continue
@@ -1042,8 +1051,11 @@ def _validate_http_request_node_config(config: dict[str, Any]) -> None:
     if method not in HTTP_METHODS:
         raise ValueError("HTTP Request nodes require a supported HTTP method.")
 
-    if not str(config.get("path") or "").strip():
+    path = str(config.get("path") or "").strip()
+    if not path:
         raise ValueError("HTTP Request nodes require a non-empty path.")
+    if DISALLOWED_HTTP_PATH_PATTERN.match(path):
+        raise ValueError("HTTP Request paths must be relative and cannot override the connection base_url.")
 
     if config.get("headers") is not None and not isinstance(config.get("headers"), dict):
         raise ValueError("HTTP Request node headers must be a JSON object.")

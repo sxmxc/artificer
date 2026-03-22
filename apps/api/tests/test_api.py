@@ -1314,6 +1314,55 @@ def test_runtime_postgres_updates_remove_dsn_when_switching_to_field_config(empt
         assert runtime_config["port"] == 5433
 
 
+@pytest.mark.parametrize("dsn_secret_key", ["dsn", "database_url", "url"])
+def test_runtime_postgres_redacted_dsn_updates_preserve_existing_aliases(empty_db, dsn_secret_key):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/connections",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": f"Alias-preserved database {dsn_secret_key}",
+            "connector_type": "postgres",
+            "description": None,
+            "config": {
+                dsn_secret_key: "postgresql://readonly:kept-secret@db.internal:5432/artificer",
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+
+    update_response = client.put(
+        "/api/admin/connections/1",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": f"Alias-preserved database {dsn_secret_key}",
+            "connector_type": "postgres",
+            "description": "Updated without rotating DSN",
+            "config": {
+                "dsn": REDACTED_CONNECTION_SECRET,
+            },
+            "is_active": False,
+        },
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["config"]["dsn"] == REDACTED_CONNECTION_SECRET
+    assert update_response.json()["is_active"] is False
+
+    with Session(engine) as session:
+        postgres_connection = session.get(route_runtime_module.Connection, 1)
+        assert postgres_connection is not None
+        runtime_config = route_runtime_module._connection_runtime_config(postgres_connection)
+        assert runtime_config["dsn"] == "postgresql://readonly:kept-secret@db.internal:5432/artificer"
+        assert postgres_connection.is_active is False
+
+
 def test_runtime_connection_update_fails_when_secret_material_cannot_be_decrypted(empty_db):
     client = TestClient(app)
     headers = _login_headers(client)
@@ -2387,7 +2436,15 @@ def test_runtime_http_request_connector_failures_return_error_runs(empty_db, mon
     assert error_step["error_message"] == "upstream timed out"
 
 
-@pytest.mark.parametrize("invalid_path", ["https://evil.example.com/pwn", "//evil.example.com/pwn"])
+@pytest.mark.parametrize(
+    "invalid_path",
+    [
+        "https://evil.example.com/pwn",
+        "//evil.example.com/pwn",
+        "ftp://evil.example.com/pwn",
+        "mailto:ops@example.com",
+    ],
+)
 def test_runtime_http_request_connector_rejects_absolute_or_scheme_relative_paths(empty_db, monkeypatch, invalid_path):
     client = TestClient(app)
     headers = _login_headers(client)
@@ -2452,28 +2509,9 @@ def test_runtime_http_request_connector_rejects_absolute_or_scheme_relative_path
         },
         headers=headers,
     )
-    assert update_implementation_response.status_code == 200
-
-    publish_response = client.post(
-        f"/api/admin/endpoints/{endpoint['id']}/deployments/publish",
-        json={"environment": "production"},
-        headers=headers,
-    )
-    assert publish_response.status_code == 201
-
-    live_response = client.get("/api/http-url-guard")
-    assert live_response.status_code == 500
-    assert live_response.json() == {"error": "HTTP Request step requires a relative path."}
+    assert update_implementation_response.status_code == 400
+    assert "must be relative" in update_implementation_response.json()["detail"]
     assert called["invoked"] is False
-
-    executions_response = client.get(
-        f"/api/admin/executions?endpoint_id={endpoint['id']}&limit=5",
-        headers=headers,
-    )
-    assert executions_response.status_code == 200
-    execution = executions_response.json()[0]
-    assert execution["status"] == "error"
-    assert "must be relative" in (execution["error_message"] or "")
 
 
 def test_runtime_http_request_connector_allows_normal_relative_paths(empty_db, monkeypatch):

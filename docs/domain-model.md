@@ -84,7 +84,7 @@ Fields:
 Operational notes:
 - This scope metadata is intentionally lighter than a full Project model; it exists to organize shared connections in the admin UI and to make route/environment intent visible while the broader multi-project roadmap remains separate.
 - Flow nodes still bind saved connections by explicit id today, so scope helps operators manage and inspect records without changing runtime resolution behavior automatically.
-- Admin read APIs reconstruct runtime config from `settings` plus decrypted secret material, redact secret-bearing `config` values with placeholder sentinels, and expose response-only `secret_fields` metadata so edit flows can preserve stored secrets without revealing them. Postgres DSN placeholders preserve existing secrets across the supported `dsn` / `database_url` / `url` aliases so UI normalization does not silently drop a stored DSN.
+- Admin read APIs reconstruct runtime config from `settings` plus decrypted secret material, redact secret-bearing `config` values with placeholder sentinels, and expose response-only `secret_fields` metadata so edit flows can preserve stored secrets without revealing them. Postgres DSN placeholders preserve existing secrets across the supported `dsn` / `database_url` / `url` aliases so UI normalization does not silently drop a stored DSN, and HTTP header placeholders preserve stored values case-insensitively so header-name cleanup does not silently remove a saved secret header.
 - `/api/admin/credentials` is now the primary admin API surface for these records, while `/api/admin/connections` remains as a compatibility alias and the underlying SQL table still stays named `connection` so saved flow graphs can keep their existing ids.
 - Treat credential secrets as write-only: once created or rotated, raw values are never returned by read APIs or shown in the UI again. `CREDENTIAL_ENCRYPTION_KEY` is required for runtime use and for the storage migration; local Compose/test bootstrap remains usable because those flows inject explicit dev/test keys.
 
@@ -188,7 +188,7 @@ Role behavior:
 - `viewer`: can browse the route catalog and use preview tools, but cannot view shared connection configs, execution runs/details, or execution telemetry
 - `editor`: viewer permissions plus runtime connection/execution visibility with redacted secret-bearing connection fields, route/settings/schema mutations, flow/deployment scaffolding, and route import
 - `superuser`: editor permissions plus admin-user management
-- Repeated failed sign-ins can temporarily lock an account, and the API also applies a client-IP throttle before password verification continues.
+- Repeated failed sign-ins can temporarily lock an account, and the API also applies a client-IP throttle before password verification continues. That throttle uses the direct socket peer by default, but reverse-proxy deployments may opt into `TRUSTED_PROXY_CIDRS` / `ADMIN_TRUSTED_PROXY_CIDRS` so forwarded client IP headers are trusted only from known proxy hops.
 
 Related admin endpoints:
 - `GET /api/admin/account/me`: returns the signed-in admin user's profile details

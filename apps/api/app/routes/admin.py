@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ipaddress import ip_address, ip_network
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlmodel import Session, select
 
+from app.config import Settings
 from app.crud import (
     create_endpoint,
     delete_endpoint,
@@ -113,6 +115,7 @@ router = APIRouter()
 ENDPOINT_BUNDLE_PRODUCT = "Artificer"
 ENDPOINT_BUNDLE_SCHEMA_VERSION = 1
 SLUG_SEPARATOR_PATTERN = re.compile(r"[^a-z0-9]+")
+settings = Settings()
 
 
 @dataclass
@@ -172,8 +175,86 @@ def _raise_runtime_configuration_error(error: CredentialSecretError) -> None:
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error))
 
 
+def _normalize_ip_candidate(raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+
+    candidate = str(raw_value).strip().strip('"')
+    if not candidate or candidate.lower() == "unknown" or candidate.startswith("_"):
+        return None
+
+    host = candidate
+    if candidate.startswith("["):
+        end_index = candidate.find("]")
+        if end_index < 0:
+            return None
+        host = candidate[1:end_index]
+    elif candidate.count(":") == 1:
+        maybe_host, maybe_port = candidate.rsplit(":", 1)
+        if maybe_port.isdigit():
+            host = maybe_host
+
+    try:
+        return str(ip_address(host))
+    except ValueError:
+        return None
+
+
+def _is_trusted_proxy(ip_value: str | None) -> bool:
+    normalized_ip = _normalize_ip_candidate(ip_value)
+    if normalized_ip is None:
+        return False
+
+    candidate = ip_address(normalized_ip)
+    return any(candidate in ip_network(raw_network, strict=False) for raw_network in settings.trusted_proxy_cidrs)
+
+
+def _header_values(request: Request, header_name: str) -> list[str]:
+    return [value for value in request.headers.getlist(header_name) if value]
+
+
+def _forwarded_client_chain(request: Request) -> list[str]:
+    forwarded_values: list[str] = []
+    for header_value in _header_values(request, "forwarded"):
+        for entry in header_value.split(","):
+            for parameter in entry.split(";"):
+                if "=" not in parameter:
+                    continue
+                name, raw_value = parameter.split("=", 1)
+                if name.strip().lower() != "for":
+                    continue
+                normalized = _normalize_ip_candidate(raw_value)
+                if normalized is not None:
+                    forwarded_values.append(normalized)
+                break
+    if forwarded_values:
+        return forwarded_values
+
+    x_forwarded_for_values: list[str] = []
+    for header_value in _header_values(request, "x-forwarded-for"):
+        for raw_value in header_value.split(","):
+            normalized = _normalize_ip_candidate(raw_value)
+            if normalized is not None:
+                x_forwarded_for_values.append(normalized)
+    return x_forwarded_for_values
+
+
 def _client_ip_from_request(request: Request) -> str | None:
-    return request.client.host if request.client else None
+    raw_peer = str(request.client.host).strip() if request.client and request.client.host else ""
+    peer_ip = _normalize_ip_candidate(raw_peer)
+    peer_identity = peer_ip or raw_peer or None
+    if peer_identity is None or not _is_trusted_proxy(peer_identity):
+        return peer_identity
+
+    forwarded_chain = _forwarded_client_chain(request)
+    if not forwarded_chain:
+        return peer_identity
+
+    for candidate in reversed([*forwarded_chain, peer_identity]):
+        if not _is_trusted_proxy(candidate):
+            return candidate
+
+    return forwarded_chain[0]
 
 
 def _normalize_endpoint_fields(

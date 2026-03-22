@@ -20,6 +20,7 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Restore trusted-proxy-aware admin login throttling via configured proxy CIDRs and preserve redacted HTTP headers case-insensitively during credential edits
 - [x] Preserve redacted Postgres DSN secrets across legacy alias normalization and reject all absolute-URI HTTP node paths during implementation validation
 - [x] Finish the 2026-03-21 security hardening pass: add secret-aware execution-trace redaction, block absolute/scheme-relative HTTP-node paths plus protected-header overrides, and keep the rest of the public/admin runtime hardening fail-closed
 - [x] Replace plaintext `Connection.config` storage with non-secret `settings` plus encrypted secret material, expose `/api/admin/credentials` as the primary admin API, and keep `/api/admin/connections` as a compatibility alias while flow bindings keep stable ids

@@ -1,5 +1,10 @@
 # DECISIONS
 
+## 2026-03-22: Forwarded client IPs are trusted only from configured proxy CIDRs
+- **Throttle boundary**: Admin login throttling should recover the real client IP from `Forwarded` / `X-Forwarded-For` only when the immediate socket peer is within an explicitly configured trusted-proxy CIDR list.
+- **Configuration**: Use `TRUSTED_PROXY_CIDRS` as the primary setting name, with `ADMIN_TRUSTED_PROXY_CIDRS` kept as an alias, so reverse-proxy deployments can opt in without reintroducing unconditional header trust.
+- **Fail-closed behavior**: When the peer is not trusted, missing, or malformed, the API must ignore forwarded client-IP headers and keep throttling on the direct socket identity instead of widening spoofing risk.
+
 ## 2026-03-21: Credential storage stays split between settings and encrypted secrets
 - **Storage boundary**: Keep stable flow-facing `connection_id` references and the existing `connection` table, but split persisted connector data into non-secret `settings` plus encrypted `secret_material_encrypted` so the old plaintext `config` blob disappears.
 - **API boundary**: Make `/api/admin/credentials` the primary admin surface, keep `/api/admin/connections` as a compatibility alias during the transition, and continue returning only redacted sentinels plus `secret_fields` metadata on reads.

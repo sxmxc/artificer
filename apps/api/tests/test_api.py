@@ -30,6 +30,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 import app.db as db_module
+import app.routes.admin as admin_routes_module
 import app.services.admin_auth as admin_auth_module
 import app.services.route_runtime as route_runtime_module
 import scripts.create_test_admin as create_test_admin_script
@@ -1256,6 +1257,58 @@ def test_runtime_connection_updates_preserve_redacted_secret_values(empty_db):
         assert route_runtime_module._connection_runtime_config(postgres_connection)["password"] == "db-secret"
         assert postgres_connection.secret_material_encrypted is not None
         assert "db-secret" not in postgres_connection.secret_material_encrypted
+
+
+def test_runtime_http_connection_updates_preserve_redacted_headers_case_insensitively(empty_db):
+    client = TestClient(app)
+    headers = _login_headers(client)
+
+    create_response = client.post(
+        "/api/admin/connections",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Case-preserved upstream",
+            "connector_type": "http",
+            "description": None,
+            "config": {
+                "base_url": "https://api.example.com",
+                "headers": {"X-API-Key": "shared-secret"},
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+
+    update_response = client.put(
+        "/api/admin/connections/1",
+        json={
+            "project": "default",
+            "environment": "production",
+            "name": "Case-preserved upstream",
+            "connector_type": "http",
+            "description": "Updated without rotating header",
+            "config": {
+                "base_url": "https://api-v2.example.com",
+                "headers": {"x-api-key": REDACTED_CONNECTION_SECRET},
+            },
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["config"]["headers"] == {"x-api-key": REDACTED_CONNECTION_SECRET}
+
+    with Session(engine) as session:
+        http_connection = session.get(route_runtime_module.Connection, 1)
+        assert http_connection is not None
+        assert http_connection.settings["base_url"] == "https://api-v2.example.com"
+        assert route_runtime_module._connection_runtime_config(http_connection)["headers"] == {
+            "x-api-key": "shared-secret"
+        }
+        assert http_connection.secret_material_encrypted is not None
+        assert "shared-secret" not in http_connection.secret_material_encrypted
 
 
 def test_runtime_postgres_updates_remove_dsn_when_switching_to_field_config(empty_db):
@@ -3587,6 +3640,93 @@ def test_admin_login_throttles_repeated_failures_from_the_same_ip(empty_db, monk
             "password": "wrong-password",
             "remember_me": False,
         },
+    )
+    assert throttled_response.status_code == 429
+    assert int(throttled_response.headers["retry-after"]) >= 1
+
+
+def test_admin_login_throttles_by_forwarded_client_ip_for_trusted_proxies(empty_db, monkeypatch: pytest.MonkeyPatch):
+    client = TestClient(app, client=("10.10.0.5", 4321))
+    monkeypatch.setattr(admin_auth_module.settings, "admin_login_max_attempts", 99)
+    monkeypatch.setattr(admin_auth_module.settings, "admin_login_ip_max_attempts", 2)
+    monkeypatch.setattr(admin_auth_module.settings, "admin_login_window_seconds", 300)
+    monkeypatch.setattr(admin_auth_module.settings, "admin_login_lockout_seconds", 60)
+    monkeypatch.setattr(admin_routes_module.settings, "trusted_proxy_cidrs", ["10.0.0.0/8"])
+
+    for _ in range(2):
+        failed_response = client.post(
+            "/api/admin/auth/login",
+            json={
+                "username": "unknown-user",
+                "password": "wrong-password",
+                "remember_me": False,
+            },
+            headers={"X-Forwarded-For": "203.0.113.10"},
+        )
+        assert failed_response.status_code == 401
+
+    other_client_response = client.post(
+        "/api/admin/auth/login",
+        json={
+            "username": "unknown-user",
+            "password": "wrong-password",
+            "remember_me": False,
+        },
+        headers={"X-Forwarded-For": "203.0.113.11"},
+    )
+    assert other_client_response.status_code == 401
+
+    throttled_response = client.post(
+        "/api/admin/auth/login",
+        json={
+            "username": "unknown-user",
+            "password": "wrong-password",
+            "remember_me": False,
+        },
+        headers={"X-Forwarded-For": "203.0.113.10"},
+    )
+    assert throttled_response.status_code == 429
+    assert int(throttled_response.headers["retry-after"]) >= 1
+
+
+def test_admin_login_ignores_forwarded_client_ip_from_untrusted_peers(empty_db, monkeypatch: pytest.MonkeyPatch):
+    client = TestClient(app, client=("198.51.100.20", 4321))
+    monkeypatch.setattr(admin_auth_module.settings, "admin_login_max_attempts", 99)
+    monkeypatch.setattr(admin_auth_module.settings, "admin_login_ip_max_attempts", 2)
+    monkeypatch.setattr(admin_auth_module.settings, "admin_login_window_seconds", 300)
+    monkeypatch.setattr(admin_auth_module.settings, "admin_login_lockout_seconds", 60)
+    monkeypatch.setattr(admin_routes_module.settings, "trusted_proxy_cidrs", ["10.0.0.0/8"])
+
+    failed_one = client.post(
+        "/api/admin/auth/login",
+        json={
+            "username": "unknown-user",
+            "password": "wrong-password",
+            "remember_me": False,
+        },
+        headers={"X-Forwarded-For": "203.0.113.10"},
+    )
+    assert failed_one.status_code == 401
+
+    failed_two = client.post(
+        "/api/admin/auth/login",
+        json={
+            "username": "unknown-user",
+            "password": "wrong-password",
+            "remember_me": False,
+        },
+        headers={"X-Forwarded-For": "203.0.113.11"},
+    )
+    assert failed_two.status_code == 401
+
+    throttled_response = client.post(
+        "/api/admin/auth/login",
+        json={
+            "username": "unknown-user",
+            "password": "wrong-password",
+            "remember_me": False,
+        },
+        headers={"X-Forwarded-For": "203.0.113.12"},
     )
     assert throttled_response.status_code == 429
     assert int(throttled_response.headers["retry-after"]) >= 1

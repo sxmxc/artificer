@@ -80,9 +80,9 @@ Already shipped:
 - shared public-route policy across OpenAPI, `/api/reference.json`, and legacy mock fallback so runtime-managed routes stay public only while they still have an active deployment
 - unsupported public `auth_mode` values now fail closed: only `auth_mode = none` routes stay on public contract/runtime surfaces, unsupported auth routes return `501`, and the compiled public deployment registry excludes them until inbound auth lands
 - public runtime node failures now omit raw connector/database/runtime detail from public response bodies while still retaining internal `error_message` detail in admin execution traces
-- admin login throttling now keys off the direct client address instead of trusting raw `X-Forwarded-For`
+- admin login throttling now recovers client IPs from `Forwarded` / `X-Forwarded-For` only when the immediate peer matches configured trusted-proxy CIDRs, and otherwise keeps throttling on the direct socket identity
 - viewer roles can no longer read shared credential configs, execution runs, execution details, or execution telemetry; runtime visibility remains editor+
-- editor/superuser credential reads now return redacted secret-bearing config fields plus placeholder metadata so stored secrets can survive edit flows without ever being revealed again
+- editor/superuser credential reads now return redacted secret-bearing config fields plus placeholder metadata so stored secrets can survive edit flows without ever being revealed again, including Postgres DSN aliases and case-insensitive HTTP header-name normalization
 - runtime traces now apply secret-aware redaction before persistence, and outbound HTTP nodes reject absolute/scheme-relative path overrides plus protected-header collisions
 - the old plaintext `Connection.config` blob is gone; non-secret connector settings now persist separately from encrypted secret material, `/api/admin/credentials` is the primary admin API, and `/api/admin/connections` remains as a compatibility alias
 - credential encryption now requires `CREDENTIAL_ENCRYPTION_KEY` at API startup and during the storage migration; local Compose/test bootstrap stays usable because those flows inject explicit dev/test keys

@@ -930,11 +930,21 @@ def _split_http_connection_config(
 
     merged_headers: dict[str, str] = {}
     if isinstance(submitted_headers, dict):
+        existing_by_normalized_name = (
+            {
+                _normalize_header_name(str(key)): str(value)
+                for key, value in existing_headers.items()
+                if _normalize_header_name(str(key)) and value not in {None, ""}
+            }
+            if isinstance(existing_headers, dict)
+            else {}
+        )
         for key, value in submitted_headers.items():
             header_name = str(key)
             if _is_redacted_connection_secret(value):
-                if isinstance(existing_headers, dict) and header_name in existing_headers:
-                    merged_headers[header_name] = str(existing_headers[header_name])
+                existing_value = existing_by_normalized_name.get(_normalize_header_name(header_name))
+                if existing_value not in {None, ""}:
+                    merged_headers[header_name] = existing_value
                 continue
             if value in {None, ""}:
                 continue

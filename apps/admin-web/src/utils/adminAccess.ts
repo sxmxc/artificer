@@ -8,8 +8,8 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
 
 export const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
   viewer: ["routes.read", "routes.preview"],
-  editor: ["routes.read", "routes.write", "routes.preview"],
-  superuser: ["routes.read", "routes.write", "routes.preview", "users.manage"],
+  editor: ["routes.read", "routes.write", "routes.preview", "runtime.read"],
+  superuser: ["routes.read", "routes.write", "routes.preview", "runtime.read", "users.manage"],
 };
 
 export function roleLabel(role: AdminRole | null | undefined): string {

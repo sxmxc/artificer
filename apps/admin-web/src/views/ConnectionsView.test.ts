@@ -118,7 +118,7 @@ function createRouterInstance() {
     history: createMemoryHistory(),
     routes: [
       { path: "/login", name: "login", component: viewStub },
-      { path: "/connectors", name: "connectors", component: viewStub },
+      { path: "/credentials", name: "credentials", component: viewStub },
     ],
   });
 }
@@ -140,7 +140,7 @@ function createStoredConnection(id: number): Connection {
 
 async function renderView() {
   const router = createRouterInstance();
-  await router.push("/connectors");
+  await router.push("/credentials");
   await router.isReady();
 
   return {
@@ -181,13 +181,13 @@ describe("ConnectionsView", () => {
     cleanup();
   });
 
-  it("loads connectors and passes them to the shared manager", async () => {
+  it("loads credentials and passes them to the shared manager", async () => {
     await renderView();
     await flushPromises();
 
     expect(vi.mocked(listConnections)).toHaveBeenCalledWith(authStub.session.value);
     expect(screen.getByTestId("manager-count")).toHaveTextContent("1");
-    expect(screen.getByText("Connectors")).toBeInTheDocument();
+    expect(screen.getByText("Credentials")).toBeInTheDocument();
   });
 
   it("creates a connector from manager events and refreshes the list", async () => {
@@ -209,7 +209,7 @@ describe("ConnectionsView", () => {
 
     expect(vi.mocked(createConnection)).toHaveBeenCalledWith(payload, authStub.session.value);
     expect(vi.mocked(listConnections)).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('Saved connector "Connector 2".')).toBeInTheDocument();
+    expect(screen.getByText('Saved credential "Connector 2".')).toBeInTheDocument();
   });
 
   it("updates a connector from manager events and refreshes the list", async () => {
@@ -231,7 +231,7 @@ describe("ConnectionsView", () => {
 
     expect(vi.mocked(updateConnection)).toHaveBeenCalledWith(1, payload, authStub.session.value);
     expect(vi.mocked(listConnections)).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('Updated connector "Connector 1".')).toBeInTheDocument();
+    expect(screen.getByText('Updated credential "Connector 1".')).toBeInTheDocument();
   });
 
   it("deletes a connector from manager events and refreshes the list", async () => {
@@ -243,6 +243,6 @@ describe("ConnectionsView", () => {
 
     expect(vi.mocked(deleteConnection)).toHaveBeenCalledWith(1, authStub.session.value);
     expect(vi.mocked(listConnections)).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("Deleted connector.")).toBeInTheDocument();
+    expect(screen.getByText("Deleted credential.")).toBeInTheDocument();
   });
 });

@@ -288,7 +288,7 @@ class RouteDeploymentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ConnectionBase(BaseModel):
+class CredentialBase(BaseModel):
     project: str = "default"
     environment: str = "production"
     name: str
@@ -298,20 +298,28 @@ class ConnectionBase(BaseModel):
     is_active: bool = True
 
 
-class ConnectionCreate(ConnectionBase):
+class CredentialCreate(CredentialBase):
     pass
 
 
-class ConnectionUpdate(ConnectionBase):
+class CredentialUpdate(CredentialBase):
     pass
 
 
-class ConnectionRead(ConnectionBase):
+class CredentialRead(CredentialBase):
     id: int
+    secret_fields: List[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Compatibility aliases while `/connections` remains as a thin wrapper over `/credentials`.
+ConnectionBase = CredentialBase
+ConnectionCreate = CredentialCreate
+ConnectionUpdate = CredentialUpdate
+ConnectionRead = CredentialRead
 
 
 class ExecutionStepRead(BaseModel):

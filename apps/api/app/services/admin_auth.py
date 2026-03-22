@@ -724,6 +724,7 @@ PERMISSION_ERROR_MESSAGES: dict[AdminPermission, str] = {
     AdminPermission.routes_read: "Your role cannot browse route definitions.",
     AdminPermission.routes_write: "Your role cannot create, edit, import, or delete routes.",
     AdminPermission.routes_preview: "Your role cannot run admin preview tools.",
+    AdminPermission.runtime_read: "Your role cannot view runtime connections or execution history.",
     AdminPermission.users_manage: "Only superusers can manage admin accounts.",
 }
 
@@ -743,6 +744,7 @@ def require_admin_permission(permission: AdminPermission):
 require_route_read_access = require_admin_permission(AdminPermission.routes_read)
 require_route_write_access = require_admin_permission(AdminPermission.routes_write)
 require_route_preview_access = require_admin_permission(AdminPermission.routes_preview)
+require_runtime_read_access = require_admin_permission(AdminPermission.runtime_read)
 require_user_management_access = require_admin_permission(AdminPermission.users_manage)
 
 

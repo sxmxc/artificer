@@ -4,12 +4,13 @@ This file tracks the work needed to bootstrap and evolve the project.
 Read `docs/roadmap.md` alongside this file if you are picking up the next implementation slice.
 
 ## Now
+- (none)
 
 ## Next
 - [ ] Add advanced inbound auth (API keys, bearer token policies, scopes)
 - [ ] Decide and implement a safe request-body capture/replay policy for execution traces so the `Test` journey can replay more than path/query values
 - [ ] Break the generic `transform` node into a typed `Data Ops` family for complex endpoints, including candidates like `split`, `merge/join`, collection/state operators, and connector-aware retry/status routing; keep any JavaScript `Code` node behind an explicit sandbox/safety decision
-- [ ] Polish connector UX after browser QA by deduplicating blocked-delete errors and normalizing seeded/demo connector names used in local testing
+- [ ] Polish credential/node UX after the credential split by deduplicating blocked-delete errors, tightening binding affordances, and normalizing seeded/demo names used in local testing
 
 ## Later
 - [ ] Improve OpenAPI and reference-feed publishing so only promoted runtime contracts are exposed
@@ -19,6 +20,18 @@ Read `docs/roadmap.md` alongside this file if you are picking up the next implem
 - [ ] (none)
 
 ## Done
+- [x] Let omitted HTTP credential headers clear stored shared-secret headers instead of silently preserving them during admin edits
+- [x] Load the credential-storage migration encryption key through `Settings` so `.env`-backed startup and Alembic upgrade paths stay aligned
+- [x] Restore trusted-proxy-aware admin login throttling via configured proxy CIDRs and preserve redacted HTTP headers case-insensitively during credential edits
+- [x] Preserve redacted Postgres DSN secrets across legacy alias normalization and reject all absolute-URI HTTP node paths during implementation validation
+- [x] Finish the 2026-03-21 security hardening pass: add secret-aware execution-trace redaction, block absolute/scheme-relative HTTP-node paths plus protected-header overrides, and keep the rest of the public/admin runtime hardening fail-closed
+- [x] Replace plaintext `Connection.config` storage with non-secret `settings` plus encrypted secret material, expose `/api/admin/credentials` as the primary admin API, and keep `/api/admin/connections` as a compatibility alias while flow bindings keep stable ids
+- [x] Rename the top-level `Connectors` surface to `Credentials` and preserve write-only rotate/rebind flows without revealing stored secret values
+- [x] Redact secret-bearing connection config in admin read APIs and preserve stored secrets across edit flows with write-only placeholders
+- [x] Sync the admin browse dashboard with the new `runtime.read` boundary so viewer roles no longer request or render runtime telemetry surfaces they cannot access
+- [x] Tighten runtime-read permissions so viewer roles can no longer read connection configs, execution traces, or execution telemetry while editors and superusers keep runtime visibility
+- [x] Land the first backend slice of the 2026-03-21 security hardening pass: fail closed for unsupported public `auth_mode`, sanitize public runtime error bodies, and ignore raw `X-Forwarded-For` for admin login throttling
+- [x] Capture the 2026-03-21 repo-wide security review findings in backlog and architecture docs
 - [x] Refresh the backend-served `/status` shell to the current Artificer obsidian-and-neon branding, including corrected icon scaling, an icon-only theme toggle, tighter copy, and the shared icon asset
 - [x] Refresh the public README and admin UI docs for the Artificer Studio theme/version bump and the collapsible route catalog rail
 - [x] Let selected-route workspaces collapse the `Routes` catalog rail so Contract/Flow/Test/Deploy get more horizontal space while editing

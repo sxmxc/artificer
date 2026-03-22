@@ -24,7 +24,7 @@ const isSaving = ref(false);
 const pageError = ref<string | null>(null);
 const pageSuccess = ref<string | null>(null);
 
-const canManageConnectors = computed(
+const canManageCredentials = computed(
   () => auth.canWriteRoutes.value && !auth.mustChangePassword.value,
 );
 
@@ -33,7 +33,7 @@ function describeError(error: unknown, fallbackMessage: string): string {
 }
 
 async function loadConnections(): Promise<void> {
-  if (!auth.session.value || !canManageConnectors.value) {
+  if (!auth.session.value || !canManageCredentials.value) {
     connections.value = [];
     pageError.value = null;
     return;
@@ -46,18 +46,18 @@ async function loadConnections(): Promise<void> {
     connections.value = await listConnections(auth.session.value);
   } catch (error) {
     if (error instanceof AdminApiError && error.status === 401) {
-      void auth.logout("Your admin session expired. Sign in again before managing connectors.");
+      void auth.logout("Your admin session expired. Sign in again before managing credentials.");
       void router.push({ name: "login" });
       return;
     }
-    pageError.value = describeError(error, "Unable to load connectors.");
+    pageError.value = describeError(error, "Unable to load credentials.");
   } finally {
     isLoading.value = false;
   }
 }
 
 watch(
-  () => [auth.session.value?.token, canManageConnectors.value],
+  () => [auth.session.value?.token, canManageCredentials.value],
   () => {
     void loadConnections();
   },
@@ -66,7 +66,7 @@ watch(
 
 async function persistConnection(connectionId: number | null, payload: ConnectionPayload): Promise<void> {
   if (!auth.session.value) {
-    pageError.value = "Sign in again before managing connectors.";
+    pageError.value = "Sign in again before managing credentials.";
     return;
   }
 
@@ -77,21 +77,21 @@ async function persistConnection(connectionId: number | null, payload: Connectio
   try {
     if (connectionId === null) {
       const created = await createConnection(payload, auth.session.value);
-      pageSuccess.value = `Saved connector "${created.name}".`;
+      pageSuccess.value = `Saved credential "${created.name}".`;
     } else {
       const updated = await updateConnection(connectionId, payload, auth.session.value);
-      pageSuccess.value = `Updated connector "${updated.name}".`;
+      pageSuccess.value = `Updated credential "${updated.name}".`;
     }
     await loadConnections();
   } catch (error) {
     if (error instanceof AdminApiError && error.status === 401) {
-      void auth.logout("Your admin session expired. Sign in again before managing connectors.");
+      void auth.logout("Your admin session expired. Sign in again before managing credentials.");
       void router.push({ name: "login" });
       return;
     }
     pageError.value = describeError(
       error,
-      connectionId === null ? "Unable to create connector." : "Unable to update connector.",
+      connectionId === null ? "Unable to create credential." : "Unable to update credential.",
     );
   } finally {
     isSaving.value = false;
@@ -108,7 +108,7 @@ async function handleUpdateConnection(connectionId: number, payload: ConnectionP
 
 async function handleDeleteConnection(connectionId: number): Promise<void> {
   if (!auth.session.value) {
-    pageError.value = "Sign in again before managing connectors.";
+    pageError.value = "Sign in again before managing credentials.";
     return;
   }
 
@@ -118,15 +118,15 @@ async function handleDeleteConnection(connectionId: number): Promise<void> {
 
   try {
     await deleteConnection(connectionId, auth.session.value);
-    pageSuccess.value = "Deleted connector.";
+    pageSuccess.value = "Deleted credential.";
     await loadConnections();
   } catch (error) {
     if (error instanceof AdminApiError && error.status === 401) {
-      void auth.logout("Your admin session expired. Sign in again before managing connectors.");
+      void auth.logout("Your admin session expired. Sign in again before managing credentials.");
       void router.push({ name: "login" });
       return;
     }
-    pageError.value = describeError(error, "Unable to delete connector.");
+    pageError.value = describeError(error, "Unable to delete credential.");
   } finally {
     isSaving.value = false;
   }
@@ -142,9 +142,9 @@ async function handleDeleteConnection(connectionId: number): Promise<void> {
             <v-icon icon="mdi-connection" />
           </v-avatar>
         </template>
-        <v-card-title>Connectors</v-card-title>
+        <v-card-title>Credentials</v-card-title>
         <v-card-subtitle>
-          Manage shared HTTP and Postgres connector credentials in one place. Flow nodes can keep binding these records
+          Manage shared HTTP and Postgres credentials in one place. Flow nodes can keep binding these records
           by id without re-entering secrets per route.
         </v-card-subtitle>
       </v-card-item>
@@ -167,16 +167,16 @@ async function handleDeleteConnection(connectionId: number): Promise<void> {
       {{ pageError }}
     </v-alert>
     <v-alert
-      v-if="!canManageConnectors"
+      v-if="!canManageCredentials"
       border="start"
       color="info"
       variant="tonal"
     >
-      Your current role can browse routes but cannot manage connector credentials.
+      Your current role can browse routes but cannot manage credentials.
     </v-alert>
 
     <ConnectionManagerCard
-      :can-write="canManageConnectors"
+      :can-write="canManageCredentials"
       :connections="connections"
       :error-message="pageError"
       :is-loading="isLoading"

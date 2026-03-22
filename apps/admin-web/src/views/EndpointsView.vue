@@ -241,6 +241,7 @@ const canApplyImport = computed(() =>
 );
 const canWriteRoutes = computed(() => auth.canWriteRoutes.value && !auth.mustChangePassword.value);
 const canPreviewRoutes = computed(() => auth.canPreviewRoutes.value && !auth.mustChangePassword.value);
+const canReadRuntime = computed(() => auth.canReadRuntime.value && !auth.mustChangePassword.value);
 const contractEditorPath = computed(() => selectedEndpoint.value?.path ?? draft.value.path);
 
 function stripContractFields(source: EndpointDraft): Omit<EndpointDraft, "request_schema" | "response_schema" | "seed_key"> {
@@ -539,7 +540,7 @@ async function fetchEndpoints(options: { background?: boolean } = {}): Promise<v
 }
 
 async function fetchExecutionTelemetry(options: { background?: boolean } = {}): Promise<void> {
-  if (!auth.session.value || props.mode !== "browse") {
+  if (!auth.session.value || props.mode !== "browse" || !canReadRuntime.value) {
     executionTelemetry.value = null;
     executionTelemetryError.value = null;
     return;
@@ -622,6 +623,19 @@ watch(
       return;
     }
 
+    executionTelemetryError.value = null;
+  },
+  { immediate: true },
+);
+
+watch(
+  canReadRuntime,
+  (value) => {
+    if (value || props.mode !== "browse") {
+      return;
+    }
+
+    executionTelemetry.value = null;
     executionTelemetryError.value = null;
   },
   { immediate: true },
@@ -1401,8 +1415,8 @@ function openPreview(): void {
   void router.push({ name: "endpoint-preview", params: { endpointId: selectedEndpoint.value.id } });
 }
 
-function openConnectorsPage(): void {
-  void router.push({ name: "connectors" });
+function openCredentialsPage(): void {
+  void router.push({ name: "credentials" });
 }
 
 function resetContractDraft(): void {
@@ -1914,11 +1928,14 @@ const activeTitle = computed(() => {
                 <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-4">
                   <div>
                     <div class="text-overline text-secondary">Live telemetry</div>
-                    <div class="text-body-2 text-medium-emphasis">
+                    <div v-if="canReadRuntime" class="text-body-2 text-medium-emphasis">
                       Based on the latest {{ executionTelemetrySnapshot.sampled_runs }} live runs stored in runtime history.
                     </div>
+                    <div v-else class="text-body-2 text-medium-emphasis">
+                      Runtime telemetry is limited to editor and superuser roles.
+                    </div>
                   </div>
-                  <div class="text-caption text-medium-emphasis">
+                  <div v-if="canReadRuntime" class="text-caption text-medium-emphasis">
                     Last sampled {{ formatTimestamp(executionTelemetrySnapshot.latest_completed_at) }}
                   </div>
                 </div>
@@ -1933,52 +1950,63 @@ const activeTitle = computed(() => {
                   {{ executionTelemetryError }}
                 </v-alert>
 
-                <v-row class="browse-telemetry-grid" density="comfortable">
-                  <v-col cols="12" md="6" xl="3">
-                    <v-sheet class="browse-metric-card pa-4" rounded="lg">
-                      <div class="text-overline text-medium-emphasis">Recent live runs</div>
-                      <div class="text-h5 font-weight-bold" data-testid="browse-telemetry-runs">
-                        {{ executionTelemetrySnapshot.sampled_runs }}
-                      </div>
-                      <div class="text-caption text-medium-emphasis">
-                        {{ formatTelemetryPercentage(executionTelemetrySnapshot.success_rate) }} success ·
-                        {{ executionTelemetrySnapshot.route_count }} routes observed
-                      </div>
-                    </v-sheet>
-                  </v-col>
-                  <v-col cols="12" md="6" xl="3">
-                    <v-sheet class="browse-metric-card pa-4" rounded="lg">
-                      <div class="text-overline text-medium-emphasis">Average response</div>
-                      <div class="text-h5 font-weight-bold" data-testid="browse-telemetry-avg-response">
-                        {{ formatTelemetryDuration(executionTelemetrySnapshot.average_response_time_ms) }}
-                      </div>
-                      <div class="text-caption text-medium-emphasis">Route wall-clock time across sampled runs.</div>
-                    </v-sheet>
-                  </v-col>
-                  <v-col cols="12" md="6" xl="3">
-                    <v-sheet class="browse-metric-card pa-4" rounded="lg">
-                      <div class="text-overline text-medium-emphasis">P95 response</div>
-                      <div class="text-h5 font-weight-bold" data-testid="browse-telemetry-p95-response">
-                        {{ formatTelemetryDuration(executionTelemetrySnapshot.p95_response_time_ms) }}
-                      </div>
-                      <div class="text-caption text-medium-emphasis">Tail latency to help surface slow outliers.</div>
-                    </v-sheet>
-                  </v-col>
-                  <v-col cols="12" md="6" xl="3">
-                    <v-sheet class="browse-metric-card pa-4" rounded="lg">
-                      <div class="text-overline text-medium-emphasis">Average flow time</div>
-                      <div class="text-h5 font-weight-bold" data-testid="browse-telemetry-avg-flow">
-                        {{ formatTelemetryDuration(executionTelemetrySnapshot.average_flow_time_ms) }}
-                      </div>
-                      <div class="text-caption text-medium-emphasis">
-                        {{ formatTelemetryDuration(executionTelemetrySnapshot.p95_flow_time_ms) }} p95 ·
-                        {{ executionTelemetrySnapshot.average_steps_per_run ?? 0 }} steps/run
-                      </div>
-                    </v-sheet>
-                  </v-col>
-                </v-row>
+                <v-alert
+                  v-if="!canReadRuntime"
+                  border="start"
+                  color="info"
+                  data-testid="browse-telemetry-access-note"
+                  variant="tonal"
+                >
+                  Viewers can browse route definitions, but runtime execution history and telemetry require edit access.
+                </v-alert>
 
-                <v-row class="browse-telemetry-detail-grid" density="comfortable">
+                <template v-else>
+                  <v-row class="browse-telemetry-grid" density="comfortable">
+                    <v-col cols="12" md="6" xl="3">
+                      <v-sheet class="browse-metric-card pa-4" rounded="lg">
+                        <div class="text-overline text-medium-emphasis">Recent live runs</div>
+                        <div class="text-h5 font-weight-bold" data-testid="browse-telemetry-runs">
+                          {{ executionTelemetrySnapshot.sampled_runs }}
+                        </div>
+                        <div class="text-caption text-medium-emphasis">
+                          {{ formatTelemetryPercentage(executionTelemetrySnapshot.success_rate) }} success ·
+                          {{ executionTelemetrySnapshot.route_count }} routes observed
+                        </div>
+                      </v-sheet>
+                    </v-col>
+                    <v-col cols="12" md="6" xl="3">
+                      <v-sheet class="browse-metric-card pa-4" rounded="lg">
+                        <div class="text-overline text-medium-emphasis">Average response</div>
+                        <div class="text-h5 font-weight-bold" data-testid="browse-telemetry-avg-response">
+                          {{ formatTelemetryDuration(executionTelemetrySnapshot.average_response_time_ms) }}
+                        </div>
+                        <div class="text-caption text-medium-emphasis">Route wall-clock time across sampled runs.</div>
+                      </v-sheet>
+                    </v-col>
+                    <v-col cols="12" md="6" xl="3">
+                      <v-sheet class="browse-metric-card pa-4" rounded="lg">
+                        <div class="text-overline text-medium-emphasis">P95 response</div>
+                        <div class="text-h5 font-weight-bold" data-testid="browse-telemetry-p95-response">
+                          {{ formatTelemetryDuration(executionTelemetrySnapshot.p95_response_time_ms) }}
+                        </div>
+                        <div class="text-caption text-medium-emphasis">Tail latency to help surface slow outliers.</div>
+                      </v-sheet>
+                    </v-col>
+                    <v-col cols="12" md="6" xl="3">
+                      <v-sheet class="browse-metric-card pa-4" rounded="lg">
+                        <div class="text-overline text-medium-emphasis">Average flow time</div>
+                        <div class="text-h5 font-weight-bold" data-testid="browse-telemetry-avg-flow">
+                          {{ formatTelemetryDuration(executionTelemetrySnapshot.average_flow_time_ms) }}
+                        </div>
+                        <div class="text-caption text-medium-emphasis">
+                          {{ formatTelemetryDuration(executionTelemetrySnapshot.p95_flow_time_ms) }} p95 ·
+                          {{ executionTelemetrySnapshot.average_steps_per_run ?? 0 }} steps/run
+                        </div>
+                      </v-sheet>
+                    </v-col>
+                  </v-row>
+
+                  <v-row class="browse-telemetry-detail-grid" density="comfortable">
                   <v-col cols="12" lg="7">
                     <v-sheet class="browse-metric-card pa-4" rounded="lg">
                       <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-3">
@@ -2078,7 +2106,8 @@ const activeTitle = computed(() => {
                       </div>
                     </v-sheet>
                   </v-col>
-                </v-row>
+                  </v-row>
+                </template>
               </v-card-text>
             </v-card>
 
@@ -2310,8 +2339,8 @@ const activeTitle = computed(() => {
                             <v-btn prepend-icon="mdi-refresh" size="small" variant="text" @click="refreshConnections">
                               Refresh
                             </v-btn>
-                            <v-btn color="primary" prepend-icon="mdi-open-in-new" size="small" variant="tonal" @click="openConnectorsPage">
-                              Open Connectors
+                            <v-btn color="primary" prepend-icon="mdi-open-in-new" size="small" variant="tonal" @click="openCredentialsPage">
+                              Open Credentials
                             </v-btn>
                           </div>
                         </div>

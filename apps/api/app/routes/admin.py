@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ipaddress import ip_address, ip_network
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlmodel import Session, select
 
+from app.config import Settings
 from app.crud import (
     create_endpoint,
     delete_endpoint,
@@ -15,7 +17,7 @@ from app.crud import (
     update_endpoint,
 )
 from app.db import get_session
-from app.models import Connection, EndpointDefinition
+from app.models import Credential, EndpointDefinition
 from app.schemas import (
     AdminAccountUpdate,
     AdminLoginRequest,
@@ -25,9 +27,9 @@ from app.schemas import (
     AdminUserRead,
     AdminUserUpdate,
     ChangePasswordRequest,
-    ConnectionCreate,
-    ConnectionRead,
-    ConnectionUpdate,
+    CredentialCreate,
+    CredentialRead,
+    CredentialUpdate,
     EndpointCreate,
     EndpointBundle,
     EndpointImportMode,
@@ -63,6 +65,7 @@ from app.services.admin_auth import (
     require_route_preview_access,
     require_route_read_access,
     require_route_write_access,
+    require_runtime_read_access,
     require_user_management_access,
     resolve_admin_role,
     revoke_admin_session,
@@ -79,18 +82,20 @@ from app.services.admin_endpoint_policy import (
 )
 from app.services.mock_generation import preview_from_schema
 from app.services.route_runtime import (
+    CredentialSecretError,
     build_execution_telemetry_overview,
-    create_connection,
+    build_credential_read,
+    create_credential,
     delete_connection,
     get_execution_run_detail,
     get_route_implementation_read,
     invalidate_deployment_registry,
-    list_connections,
+    list_credentials,
     list_execution_run_reads,
     list_route_deployments,
     publish_route_implementation,
     unpublish_route_implementation,
-    update_connection,
+    update_credential,
     upsert_route_implementation,
 )
 from app.services.route_status import (
@@ -110,6 +115,7 @@ router = APIRouter()
 ENDPOINT_BUNDLE_PRODUCT = "Artificer"
 ENDPOINT_BUNDLE_SCHEMA_VERSION = 1
 SLUG_SEPARATOR_PATTERN = re.compile(r"[^a-z0-9]+")
+settings = Settings()
 
 
 @dataclass
@@ -165,14 +171,90 @@ def _raise_user_input_error(error: ValueError) -> None:
     raise HTTPException(status_code=status_code, detail=detail)
 
 
-def _client_ip_from_request(request: Request) -> str | None:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        first_hop = forwarded_for.split(",")[0].strip()
-        if first_hop:
-            return first_hop
+def _raise_runtime_configuration_error(error: CredentialSecretError) -> None:
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error))
 
-    return request.client.host if request.client else None
+
+def _normalize_ip_candidate(raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+
+    candidate = str(raw_value).strip().strip('"')
+    if not candidate or candidate.lower() == "unknown" or candidate.startswith("_"):
+        return None
+
+    host = candidate
+    if candidate.startswith("["):
+        end_index = candidate.find("]")
+        if end_index < 0:
+            return None
+        host = candidate[1:end_index]
+    elif candidate.count(":") == 1:
+        maybe_host, maybe_port = candidate.rsplit(":", 1)
+        if maybe_port.isdigit():
+            host = maybe_host
+
+    try:
+        return str(ip_address(host))
+    except ValueError:
+        return None
+
+
+def _is_trusted_proxy(ip_value: str | None) -> bool:
+    normalized_ip = _normalize_ip_candidate(ip_value)
+    if normalized_ip is None:
+        return False
+
+    candidate = ip_address(normalized_ip)
+    return any(candidate in ip_network(raw_network, strict=False) for raw_network in settings.trusted_proxy_cidrs)
+
+
+def _header_values(request: Request, header_name: str) -> list[str]:
+    return [value for value in request.headers.getlist(header_name) if value]
+
+
+def _forwarded_client_chain(request: Request) -> list[str]:
+    forwarded_values: list[str] = []
+    for header_value in _header_values(request, "forwarded"):
+        for entry in header_value.split(","):
+            for parameter in entry.split(";"):
+                if "=" not in parameter:
+                    continue
+                name, raw_value = parameter.split("=", 1)
+                if name.strip().lower() != "for":
+                    continue
+                normalized = _normalize_ip_candidate(raw_value)
+                if normalized is not None:
+                    forwarded_values.append(normalized)
+                break
+    if forwarded_values:
+        return forwarded_values
+
+    x_forwarded_for_values: list[str] = []
+    for header_value in _header_values(request, "x-forwarded-for"):
+        for raw_value in header_value.split(","):
+            normalized = _normalize_ip_candidate(raw_value)
+            if normalized is not None:
+                x_forwarded_for_values.append(normalized)
+    return x_forwarded_for_values
+
+
+def _client_ip_from_request(request: Request) -> str | None:
+    raw_peer = str(request.client.host).strip() if request.client and request.client.host else ""
+    peer_ip = _normalize_ip_candidate(raw_peer)
+    peer_identity = peer_ip or raw_peer or None
+    if peer_identity is None or not _is_trusted_proxy(peer_identity):
+        return peer_identity
+
+    forwarded_chain = _forwarded_client_chain(request)
+    if not forwarded_chain:
+        return peer_identity
+
+    for candidate in reversed([*forwarded_chain, peer_identity]):
+        if not _is_trusted_proxy(candidate):
+            return candidate
+
+    return forwarded_chain[0]
 
 
 def _normalize_endpoint_fields(
@@ -982,58 +1064,73 @@ def unpublish_current_route_implementation(
     return RouteDeploymentRead.model_validate(deployment)
 
 
-@router.get("/connections", response_model=list[ConnectionRead])
-def list_runtime_connections(
+@router.get("/credentials", response_model=list[CredentialRead])
+@router.get("/connections", response_model=list[CredentialRead])
+def list_runtime_credentials(
     project: str | None = None,
     environment: str | None = None,
     session: Session = Depends(get_session),
-    _: AdminContext = Depends(require_route_read_access),
-) -> list[ConnectionRead]:
-    return [
-        ConnectionRead.model_validate(connection)
-        for connection in list_connections(session, project=project, environment=environment)
-    ]
+    _: AdminContext = Depends(require_runtime_read_access),
+) -> list[CredentialRead]:
+    try:
+        return [
+            build_credential_read(connection)
+            for connection in list_credentials(session, project=project, environment=environment)
+        ]
+    except CredentialSecretError as error:
+        _raise_runtime_configuration_error(error)
 
 
-@router.post("/connections", response_model=ConnectionRead, status_code=status.HTTP_201_CREATED)
-def create_runtime_connection(
-    payload: ConnectionCreate,
+@router.post("/credentials", response_model=CredentialRead, status_code=status.HTTP_201_CREATED)
+@router.post("/connections", response_model=CredentialRead, status_code=status.HTTP_201_CREATED)
+def create_runtime_credential(
+    payload: CredentialCreate,
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_route_write_access),
-) -> ConnectionRead:
+) -> CredentialRead:
     try:
-        connection = create_connection(session, payload)
+        connection = create_credential(session, payload)
     except ValueError as error:
         _raise_user_input_error(error)
-    return ConnectionRead.model_validate(connection)
+    try:
+        return build_credential_read(connection)
+    except CredentialSecretError as error:
+        _raise_runtime_configuration_error(error)
 
 
-@router.put("/connections/{connection_id}", response_model=ConnectionRead)
-def update_runtime_connection(
+@router.put("/credentials/{connection_id}", response_model=CredentialRead)
+@router.put("/connections/{connection_id}", response_model=CredentialRead)
+def update_runtime_credential(
     connection_id: int,
-    payload: ConnectionUpdate,
+    payload: CredentialUpdate,
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_route_write_access),
-) -> ConnectionRead:
-    connection = session.get(Connection, connection_id)
+) -> CredentialRead:
+    connection = session.get(Credential, connection_id)
     if connection is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
     try:
-        updated_connection = update_connection(session, connection, payload)
+        updated_connection = update_credential(session, connection, payload)
     except ValueError as error:
         _raise_user_input_error(error)
-    return ConnectionRead.model_validate(updated_connection)
+    except CredentialSecretError as error:
+        _raise_runtime_configuration_error(error)
+    try:
+        return build_credential_read(updated_connection)
+    except CredentialSecretError as error:
+        _raise_runtime_configuration_error(error)
 
 
+@router.delete("/credentials/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
 @router.delete("/connections/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_runtime_connection(
+def delete_runtime_credential(
     connection_id: int,
     session: Session = Depends(get_session),
     _: AdminContext = Depends(require_route_write_access),
 ) -> Response:
-    connection = session.get(Connection, connection_id)
+    connection = session.get(Credential, connection_id)
     if connection is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
     try:
         delete_connection(session, connection)
     except ValueError as error:
@@ -1046,7 +1143,7 @@ def list_route_executions(
     endpoint_id: int | None = None,
     limit: int = 50,
     session: Session = Depends(get_session),
-    _: AdminContext = Depends(require_route_read_access),
+    _: AdminContext = Depends(require_runtime_read_access),
 ) -> list[ExecutionRunRead]:
     return list_execution_run_reads(session, route_id=endpoint_id, limit=max(1, min(limit, 200)))
 
@@ -1056,7 +1153,7 @@ def read_execution_telemetry_overview(
     limit: int = 200,
     top: int = 5,
     session: Session = Depends(get_session),
-    _: AdminContext = Depends(require_route_read_access),
+    _: AdminContext = Depends(require_runtime_read_access),
 ) -> ExecutionTelemetryOverview:
     return build_execution_telemetry_overview(session, limit=limit, top=top)
 
@@ -1065,7 +1162,7 @@ def read_execution_telemetry_overview(
 def read_route_execution(
     run_id: int,
     session: Session = Depends(get_session),
-    _: AdminContext = Depends(require_route_read_access),
+    _: AdminContext = Depends(require_runtime_read_access),
 ) -> ExecutionRunDetail:
     run = get_execution_run_detail(session, run_id)
     if run is None:

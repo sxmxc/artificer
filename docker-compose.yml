@@ -25,6 +25,8 @@ services:
       target: dev
     env_file:
       - .env
+    environment:
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-artificer-local-dev-key}
     ports:
       - "8000:8000"
     depends_on:

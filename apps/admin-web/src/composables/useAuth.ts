@@ -54,6 +54,7 @@ export const currentPermissions = computed<AdminPermission[]>(() => state.sessio
 export const canReadRoutes = computed(() => hasPermissionValue("routes.read"));
 export const canWriteRoutes = computed(() => hasPermissionValue("routes.write"));
 export const canPreviewRoutes = computed(() => hasPermissionValue("routes.preview"));
+export const canReadRuntime = computed(() => hasPermissionValue("runtime.read"));
 export const canManageUsers = computed(() => hasPermissionValue("users.manage"));
 
 export function hasPermissionValue(permission: AdminPermission): boolean {
@@ -194,6 +195,7 @@ export function useAuth() {
     canReadRoutes,
     canWriteRoutes,
     canPreviewRoutes,
+    canReadRuntime,
     canManageUsers,
     hasPermission: hasPermissionValue,
     clearSessionMessage,

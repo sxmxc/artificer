@@ -22,6 +22,9 @@ Fields:
 - `seed_key`: deterministic seed for repeatable generated examples
 - `created_at`, `updated_at`: audit timestamps
 
+Operational notes:
+- `auth_mode` remains part of the stored public contract, but the current public runtime only serves `auth_mode = none`. Routes configured with `basic`, `api_key`, or `bearer` are excluded from public publication/runtime surfaces for now, and direct public requests to matching routes fail closed with `501` until inbound auth ships.
+
 ## RouteImplementation
 Represents a saved live implementation for a route definition.
 
@@ -61,9 +64,10 @@ Operational notes:
 - Publishing creates a new active deployment for the target environment and supersedes the previously active one.
 - Unpublishing deactivates the currently active deployment for the target environment without deleting the deployment row or the underlying `RouteImplementation`.
 - Once a route has entered the live-runtime lifecycle, removing the last active deployment also removes that route from runtime-managed public surfaces such as OpenAPI, `/api/reference.json`, and legacy fallback dispatch until it is republished.
+- Active deployments for routes whose `auth_mode` is not `none` are also excluded from the compiled public runtime registry until real inbound auth support exists.
 
-## Connection
-Represents a reusable connector configuration for future live steps such as outbound HTTP or Postgres access.
+## Credential / Connection storage
+Represents a reusable live-runtime credential/config record for outbound HTTP or Postgres access.
 
 Fields:
 - `id`: integer primary key
@@ -72,13 +76,17 @@ Fields:
 - `name`: admin-facing connection label, unique within one `project` + `environment` scope
 - `connector_type`: `http` or `postgres`
 - `description`: optional operator note
-- `config`: connector configuration payload; `http` connections currently require `base_url` and may also carry shared headers/timeouts, while `postgres` connections currently require either a DSN or host/database/user credentials
+- `settings`: non-secret connector configuration payload; `http` records currently require `base_url` and may also carry non-secret timeouts, while `postgres` records keep host/database/user/port/sslmode here
+- `secret_material_encrypted`: encrypted secret payload; `http` records currently use this for shared auth headers, while `postgres` records use it for DSNs/passwords
 - `is_active`: whether the connection can be referenced
 - `created_at`, `updated_at`: audit timestamps
 
 Operational notes:
 - This scope metadata is intentionally lighter than a full Project model; it exists to organize shared connections in the admin UI and to make route/environment intent visible while the broader multi-project roadmap remains separate.
 - Flow nodes still bind saved connections by explicit id today, so scope helps operators manage and inspect records without changing runtime resolution behavior automatically.
+- Admin read APIs reconstruct runtime config from `settings` plus decrypted secret material, redact secret-bearing `config` values with placeholder sentinels, and expose response-only `secret_fields` metadata so edit flows can preserve stored secrets without revealing them. Postgres DSN placeholders preserve existing secrets across the supported `dsn` / `database_url` / `url` aliases so UI normalization does not silently drop a stored DSN, HTTP header placeholders preserve stored values case-insensitively so header-name cleanup does not silently remove a saved secret header, and omitted HTTP `config.headers` updates now clear stored shared-secret headers unless the request explicitly sends redaction placeholders to preserve them.
+- `/api/admin/credentials` is now the primary admin API surface for these records, while `/api/admin/connections` remains as a compatibility alias and the underlying SQL table still stays named `connection` so saved flow graphs can keep their existing ids.
+- Treat credential secrets as write-only: once created or rotated, raw values are never returned by read APIs or shown in the UI again. `CREDENTIAL_ENCRYPTION_KEY` is required for runtime use and for the storage migration, and both paths now resolve it through the same `.env`-aware settings loader; local Compose/test bootstrap remains usable because those flows inject explicit dev/test keys.
 
 ## ExecutionRun
 Represents one live runtime attempt for a deployed route.
@@ -95,7 +103,7 @@ Fields:
 
 Operational notes:
 - The current admin telemetry overview derives recent route latency from these timestamps before any dedicated time-series store exists.
-- Persisted `request_data` / `response_body` values are normalized to JSON-safe payloads before storage. Connector-returned `datetime` / `date` / `time` values are stored as ISO strings in the trace record.
+- Persisted `request_data` / `response_body` values are normalized to JSON-safe payloads before storage. Connector-returned `datetime` / `date` / `time` values are stored as ISO strings in the trace record, and secret-bearing values are redacted before persistence.
 
 ## ExecutionStep
 Represents a per-node trace record for one `ExecutionRun`.
@@ -110,7 +118,7 @@ Fields:
 
 Operational notes:
 - Step timestamps are now recorded per executed node so the admin browse dashboard can highlight slow flow hotspots. Older traces with coarse run-level timings may still exist and should be treated as partial telemetry during aggregation.
-- Persisted `input_data` / `output_data` payloads use the same JSON-safe normalization path as `ExecutionRun`, so connector-returned temporal values are recorded as ISO strings instead of failing JSON-column writes.
+- Persisted `input_data` / `output_data` payloads use the same JSON-safe normalization path as `ExecutionRun`, so connector-returned temporal values are recorded as ISO strings instead of failing JSON-column writes, and secret-bearing trace fields are redacted before storage.
 
 ## Preview/examples generation
 The system still generates preview/example responses directly from `response_schema`.
@@ -177,10 +185,10 @@ Fields:
 - `created_at`, `updated_at`: audit timestamps
 
 Role behavior:
-- `viewer`: can browse the route catalog and use preview tools
-- `editor`: viewer permissions plus route/settings/schema mutations, flow/deployment scaffolding, and route import
+- `viewer`: can browse the route catalog and use preview tools, but cannot view shared connection configs, execution runs/details, or execution telemetry
+- `editor`: viewer permissions plus runtime connection/execution visibility with redacted secret-bearing connection fields, route/settings/schema mutations, flow/deployment scaffolding, and route import
 - `superuser`: editor permissions plus admin-user management
-- Repeated failed sign-ins can temporarily lock an account, and the API also applies a client-IP throttle before password verification continues.
+- Repeated failed sign-ins can temporarily lock an account, and the API also applies a client-IP throttle before password verification continues. That throttle uses the direct socket peer by default, but reverse-proxy deployments may opt into `TRUSTED_PROXY_CIDRS` / `ADMIN_TRUSTED_PROXY_CIDRS` so forwarded client IP headers are trusted only from known proxy hops.
 
 Related admin endpoints:
 - `GET /api/admin/account/me`: returns the signed-in admin user's profile details
@@ -223,4 +231,4 @@ These rules are part of the intended architecture and should remain true:
 - Live implementations should be stored in `flow_definition`, not mixed into `response_schema` or `x-mock`.
 - Preview/example generation can remain schema-driven even when deployed runtime behavior moves to the live flow engine.
 - Once a route has entered the live-runtime lifecycle, it should not remain publicly reachable or documented through the legacy enabled-route path unless it still has an active deployment.
-- Connectors and secrets belong to live implementations and deployments, not to public contract documents.
+- Credentials, connector settings, and secrets belong to live implementations and deployments, not to public contract documents.

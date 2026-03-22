@@ -1,5 +1,34 @@
 # DECISIONS
 
+## 2026-03-22: Forwarded client IPs are trusted only from configured proxy CIDRs
+- **Throttle boundary**: Admin login throttling should recover the real client IP from `Forwarded` / `X-Forwarded-For` only when the immediate socket peer is within an explicitly configured trusted-proxy CIDR list.
+- **Configuration**: Use `TRUSTED_PROXY_CIDRS` as the primary setting name, with `ADMIN_TRUSTED_PROXY_CIDRS` kept as an alias, so reverse-proxy deployments can opt in without reintroducing unconditional header trust.
+- **Fail-closed behavior**: When the peer is not trusted, missing, or malformed, the API must ignore forwarded client-IP headers and keep throttling on the direct socket identity instead of widening spoofing risk.
+
+## 2026-03-21: Credential storage stays split between settings and encrypted secrets
+- **Storage boundary**: Keep stable flow-facing `connection_id` references and the existing `connection` table, but split persisted connector data into non-secret `settings` plus encrypted `secret_material_encrypted` so the old plaintext `config` blob disappears.
+- **API boundary**: Make `/api/admin/credentials` the primary admin surface, keep `/api/admin/connections` as a compatibility alias during the transition, and continue returning only redacted sentinels plus `secret_fields` metadata on reads.
+- **Key management**: Require `CREDENTIAL_ENCRYPTION_KEY` in the API and migration path instead of silently falling back to a built-in key. Local Compose profiles and tests may inject explicit dev/test keys so bootstrap remains usable without weakening the runtime default.
+- **Runtime hardening**: Treat secret-aware trace redaction and outbound HTTP path/header protections as part of the same trust boundary, so live execution traces and connector requests do not reintroduce the secret leakage that the credential store is designed to prevent.
+
+## 2026-03-21: Runtime visibility stays editor+ for runtime-sensitive data
+- **Permission boundary**: Keep route browsing and preview under the existing viewer role, but require a separate runtime-visibility permission for shared connections, execution runs, execution details, and execution telemetry.
+- **Current role mapping**: Grant that runtime-read permission to `editor` and `superuser`, but not `viewer`, so read-only accounts cannot see runtime connection lists, trace payloads, or telemetry even after trace redaction and credential hardening landed.
+- **Security rationale**: Secret-aware trace redaction is now in place, but runtime data still includes live execution detail and connector metadata that the product should keep out of the read-only viewer role.
+
+## 2026-03-21: Unsupported public auth modes fail closed until inbound auth ships
+- **Current public boundary**: Only routes with `auth_mode = none` are currently eligible for public publication and runtime execution. Routes configured with `basic`, `api_key`, or `bearer` remain valid admin-side contract values, but they stay out of `/status`, `/api/reference.json`, `/openapi.json`, and the compiled public deployment registry until real inbound auth is implemented.
+- **Failure mode**: Direct public requests that match those unsupported-auth routes should return `501` with clear operator-facing copy instead of silently bypassing auth.
+- **Error boundary**: Public runtime node failures must expose only sanitized `error` text; raw connector/database/runtime detail stays in admin execution traces and stored `error_message` fields.
+- **Login throttle trust**: Until the repo has explicit trusted-proxy support, admin login throttling should key off the direct client socket address rather than `X-Forwarded-For`.
+
+## 2026-03-21: Credentials are write-only, with compatibility aliases for existing connection ids
+- **Secret boundary**: Treat upstream/database secrets as write-only. After create or rotate, raw secret values must never be returned by admin read APIs or re-rendered in the UI, and they must not live as plaintext in application-managed storage.
+- **Storage model**: Runtime-usable secrets therefore need encrypted-at-rest storage or an external secret manager rather than hashing or plain JSON blobs; operators can replace/rotate values, but they cannot reveal an existing password/token again after save.
+- **Read/update model**: Credential reads return redacted sentinels plus `secret_fields` metadata, and update payloads may echo that sentinel to preserve an existing stored secret without revealing it.
+- **Compatibility boundary**: Keep the underlying SQL table name plus flow-facing `connection_id` references stable for now, even though `Credentials` is now the primary product and admin-API term.
+- **Product surface**: The dedicated top-level `Credentials` page owns shared secret CRUD, while Flow keeps credential-binding context instead of embedding full secret management.
+
 ## 2026-03-20: Generic `transform` is transitional, and future data shaping should move to typed nodes
 - **Node-model direction**: Treat the current `transform` node as a compatibility umbrella rather than the long-term operator-facing model. Future Flow authoring should expose a typed `Data Ops` family instead of one catch-all transform step.
 - **Examples of typed ops**: Candidate nodes include collection/data operators such as `split`, `merge/join`, map/set-style shaping, loop/aggregate helpers, and similar explicit data-movement steps that are easier to reason about in the canvas and runtime.

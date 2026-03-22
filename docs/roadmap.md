@@ -26,6 +26,8 @@ The product is intentionally **not** becoming a generic automation builder. It s
 - **Preview/runtime boundary**: preview/examples generation stays separate from deployed runtime execution.
 - **Sync first**: the first live runtime slice stays synchronous and bounded.
 - **Connector-first expansion**: start with `HTTP` and read-only `Postgres`.
+- **Secret boundary first**: runtime credentials must be write-only in the admin experience, never returned after save, and never persisted as plaintext.
+- **Credentials separate from connector settings**: per-vendor credential records should hold secret material, while flow nodes keep non-secret operational settings and bind credentials explicitly.
 - **API-trigger first**: keep `api_trigger` as the only entry node while the flow UX matures.
 - **Self-hosted first**: local Docker and image-only GHCR deployments remain first-class.
 - **Typed data ops before raw code**: break the generic `transform` step into explicit data-operation nodes over time, and keep any future script/code node behind a separate sandbox decision.
@@ -53,7 +55,7 @@ Already shipped:
 - admin API endpoints for:
   - current route implementation
   - deployments, publish, and unpublish
-  - connections
+  - credentials (with `/connections` compatibility aliases)
   - executions
   - execution telemetry overview
 - admin route workspace tabs:
@@ -69,13 +71,21 @@ Already shipped:
 - shared Flow value rendering for runtime and editor inspection, so transform/response mappings can combine whole-value refs with inline `{{...}}` string interpolation
 - selection-aware quick-ref drag/drop in Flow JSON editors, so helper pills replace the current token/selection instead of clobbering the whole draft payload
 - Flow-tab inspector support for binding HTTP and Postgres nodes to saved shared connections
-- dedicated top-level `Connectors` page for shared connection CRUD (create/edit/retire/reactivate/delete) with lightweight `project` / `environment` metadata and in-use delete protections
-- Flow-tab compact connector context (scope/count/refresh + direct link to `Connectors`) while keeping node inspector binding to saved connection ids
+- dedicated top-level `Credentials` page for shared HTTP/Postgres credential CRUD with lightweight `project` / `environment` metadata, in-use delete protections, and write-only secret placeholders during edits
+- Flow-tab compact connector context (scope/count/refresh + direct link to `Credentials`) while keeping node inspector binding to saved connection ids
 - Flow-tab branch-aware logic editing for first-class `If` / `Switch` nodes
 - Flow node editing now uses the same input/config/output workbench in standard and full-screen modes, with pinned focus-mode previews, schema/table/json preview modes, embedded payload-tree ref pills for common path-template edits, shared connected-path cards for reconnecting or relabeling outgoing edges, and a focus-toolbar save action that follows the same dirty-state rules as the standard Flow save button
 - Flow-canvas rewiring now supports replacement when operators drag from occupied output handles, supports target-side edge retargeting through `edge-update`, and uses distinct node silhouettes by category to improve scanability in larger graphs
 - maintained drag-and-drop for the schema editor and Flow palette, replacing bespoke native `dataTransfer` wiring with shared drag-preview/drop-target infrastructure
 - shared public-route policy across OpenAPI, `/api/reference.json`, and legacy mock fallback so runtime-managed routes stay public only while they still have an active deployment
+- unsupported public `auth_mode` values now fail closed: only `auth_mode = none` routes stay on public contract/runtime surfaces, unsupported auth routes return `501`, and the compiled public deployment registry excludes them until inbound auth lands
+- public runtime node failures now omit raw connector/database/runtime detail from public response bodies while still retaining internal `error_message` detail in admin execution traces
+- admin login throttling now recovers client IPs from `Forwarded` / `X-Forwarded-For` only when the immediate peer matches configured trusted-proxy CIDRs, and otherwise keeps throttling on the direct socket identity
+- viewer roles can no longer read shared credential configs, execution runs, execution details, or execution telemetry; runtime visibility remains editor+
+- editor/superuser credential reads now return redacted secret-bearing config fields plus placeholder metadata so stored secrets can survive edit flows without ever being revealed again, including Postgres DSN aliases, case-insensitive HTTP header-name normalization, and explicit clearing when HTTP header payloads are omitted
+- runtime traces now apply secret-aware redaction before persistence, and outbound HTTP nodes reject absolute/scheme-relative path overrides plus protected-header collisions
+- the old plaintext `Connection.config` blob is gone; non-secret connector settings now persist separately from encrypted secret material, `/api/admin/credentials` is the primary admin API, and `/api/admin/connections` remains as a compatibility alias
+- credential encryption now requires `CREDENTIAL_ENCRYPTION_KEY` at API startup and during the storage migration, and both paths resolve it through the same `.env`-aware settings loader; local Compose/test bootstrap stays usable because those flows inject explicit dev/test keys
 - explicit disable-live workflow in the admin API and `Deploy` tab, which deactivates the active deployment without deleting route or implementation history
 - runtime-aware route deletion for both direct admin deletes and confirmed `replace_all` imports, including explicit cleanup of runtime history before the route row is removed
 
@@ -89,12 +99,18 @@ Still transitional:
 
 ## Recommended Implementation Order
 
-### 1. Improve operator surfaces
+### 1. Auth and replay boundary
+
+- keep the temporary unsupported-auth rejection in place until real inbound auth (API keys, bearer policies, scopes) ships
+- decide and implement a safe request-body capture/replay policy for execution traces
+- keep the credential/key-management boundary explicit as more auth and replay work lands
+
+### 2. Improve operator surfaces
 
 After the above:
 - deployment promotion polish
 - deeper replay/debug tooling once request-capture retention rules are explicit
-- deployment promotion polish
+- credential/node UX polish plus typed `Data Ops` follow-up work
 
 ## Current Runtime Boundaries
 
@@ -106,6 +122,7 @@ These are important and should not be blurred casually:
 - `ExecutionRun` / `ExecutionStep` are runtime traces.
 - `response_schema` powers preview/examples generation.
 - `flow_definition` powers deployed live execution.
+- credentials and other live secrets belong to admin/runtime-only credential stores, not to public contract documents or broad read APIs.
 
 Do not:
 - generate OpenAPI from flow internals

@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from pydantic import ConfigDict
-from sqlalchemy import Boolean, Column, JSON as SAJSON, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, JSON as SAJSON, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from app.rbac import AdminRole
@@ -116,8 +116,9 @@ class RouteDeployment(SQLModel, table=True):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class Connection(SQLModel, table=True):
+class Credential(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("project", "environment", "name", name="uq_connection_scope_name"),)
+    __tablename__ = "connection"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     project: str = Field(
@@ -134,12 +135,17 @@ class Connection(SQLModel, table=True):
         sa_column=Column(String(32), nullable=False, server_default=ConnectionType.http.value),
     )
     description: Optional[str] = Field(default=None, sa_column=Column(String(500), nullable=True))
-    config: Dict = Field(default_factory=dict, sa_column=Column(SAJSON))
+    settings: Dict = Field(default_factory=dict, sa_column=Column(SAJSON))
+    secret_material_encrypted: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     is_active: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, server_default="1"))
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# Compatibility alias while backend/public APIs transition from "connection" to "credential" naming.
+Connection = Credential
 
 
 class ExecutionRun(SQLModel, table=True):
